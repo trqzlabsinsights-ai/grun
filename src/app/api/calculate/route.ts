@@ -1,33 +1,27 @@
 import { NextResponse } from "next/server";
-import { calculate } from "@/lib/gang-run-calculator";
-
-// ── Types ──────────────────────────────────────────────────────────────────
+import { calculateMultiSize } from "@/lib/gang-run-calculator-v2";
 
 interface ProjectInput {
   name: string;
   quantity: number;
+  stickerWidth: number;
+  stickerHeight: number;
 }
 
 interface CalculateRequest {
   sheetWidth: number;
   sheetHeight: number;
-  stickerWidth: number;
-  stickerHeight: number;
-  bleed: number; // mm
+  bleed: number;
   projects: ProjectInput[];
 }
-
-// ── POST Handler ───────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
   try {
     const body: CalculateRequest = await request.json();
 
-    const result = calculate({
+    const result = calculateMultiSize({
       sheetWidth: body.sheetWidth,
       sheetHeight: body.sheetHeight,
-      stickerWidth: body.stickerWidth,
-      stickerHeight: body.stickerHeight,
       bleed: body.bleed,
       projects: body.projects,
     });
@@ -40,7 +34,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Calculation error:", error);
     return NextResponse.json(
-      { capacity: {}, singlePlateResult: null, twoPlateResult: null, error: "Internal calculation error." },
+      { capacity: null, maxSlots: 0, singlePlateResult: null, twoPlateResult: null, error: "Internal calculation error." },
       { status: 500 }
     );
   }
