@@ -111,6 +111,8 @@ interface PlacedGroup {
   bleedIn?: number;
   shapeName?: string;
   vertices?: { x: number; y: number }[];
+  flipVertices?: { x: number; y: number }[];
+  tessellated?: boolean;
 }
 
 interface AllocationEntry {
@@ -125,6 +127,7 @@ interface AllocationEntry {
   stickerHeight?: number;
   diameter?: number;
   shapeName?: string;
+  tessellated?: boolean;
 }
 
 interface PlateResult {
@@ -201,7 +204,7 @@ const DEFAULT_CIRCLE_PROJECTS: CircleProjectInput[] = [
 ];
 
 const DEFAULT_CUSTOM_PROJECTS: CustomProjectInput[] = [
-  { name: "a", stickerWidth: 3, stickerHeight: 3, shapeName: "star", vertices: PRESET_SHAPES.star.vertices, quantity: 2000 },
+  { name: "a", stickerWidth: 3, stickerHeight: 3, shapeName: "triangle", vertices: PRESET_SHAPES.triangle.vertices, quantity: 2000 },
   { name: "b", stickerWidth: 4, stickerHeight: 4, shapeName: "heart", vertices: PRESET_SHAPES.heart.vertices, quantity: 1000 },
   { name: "c", stickerWidth: 3, stickerHeight: 4, shapeName: "diamond", vertices: PRESET_SHAPES.diamond.vertices, quantity: 1500 },
 ];
@@ -364,17 +367,28 @@ function SVGPlateVisualization({
                         const cellY = group.y + bleed + row * group.stickerHeight!;
                         const sw = group.stickerWidth!;
                         const sh = group.stickerHeight!;
-                        // Scale normalized vertices to actual sticker size + offset by cell position
+                        const inset = 0.05;
+
+                        // Primary shape (▲ up)
                         const points = group.vertices!.map(
                           (v) => `${cellX + v.x * sw},${cellY + v.y * sh}`
                         ).join(" ");
-                        // Die-cut line: slightly inset
-                        const inset = 0.05;
                         const diePoints = group.vertices!.map(
                           (v) => `${cellX + inset + v.x * (sw - 2 * inset)},${cellY + inset + v.y * (sh - 2 * inset)}`
                         ).join(" ");
+
+                        // Flip shape (▼ down) for tessellated shapes
+                        const hasFlip = group.tessellated && group.flipVertices && group.flipVertices.length >= 3;
+                        const flipPoints = hasFlip ? group.flipVertices!.map(
+                          (v) => `${cellX + v.x * sw},${cellY + v.y * sh}`
+                        ).join(" ") : "";
+                        const flipDiePoints = hasFlip ? group.flipVertices!.map(
+                          (v) => `${cellX + inset + v.x * (sw - 2 * inset)},${cellY + inset + v.y * (sh - 2 * inset)}`
+                        ).join(" ") : "";
+
                         return (
                           <g key={`shape-${gi}-${row}-${col}`}>
+                            {/* Primary shape */}
                             <polygon
                               points={points}
                               fill={color}
@@ -391,6 +405,27 @@ function SVGPlateVisualization({
                               strokeDasharray="0.1 0.06"
                               strokeOpacity={0.5}
                             />
+                            {/* Flip/tessellated shape (▼) */}
+                            {hasFlip && (
+                              <>
+                                <polygon
+                                  points={flipPoints}
+                                  fill={color}
+                                  fillOpacity={0.14}
+                                  stroke={color}
+                                  strokeWidth={0.04}
+                                  strokeOpacity={0.6}
+                                />
+                                <polygon
+                                  points={flipDiePoints}
+                                  fill="none"
+                                  stroke="#f97316"
+                                  strokeWidth={0.02}
+                                  strokeDasharray="0.1 0.06"
+                                  strokeOpacity={0.5}
+                                />
+                              </>
+                            )}
                           </g>
                         );
                       })
@@ -684,7 +719,7 @@ function AllocationTable({ allocation, projectColors, projectNames, packMode }: 
                 ) : packMode === "custom" ? (
                   <TableCell className="text-slate-300 font-mono text-xs">
                     <span className="mr-1">{PRESET_SHAPES[entry.shapeName || "diamond"]?.icon || "\u25C6"}</span>
-                    {entry.shapeName || "diamond"} ({entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;)
+                    {entry.shapeName || "diamond"} ({entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;){entry.tessellated ? " 2/cell" : ""}
                   </TableCell>
                 ) : (
                   <TableCell className="text-slate-300 font-mono text-xs">{entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;</TableCell>
@@ -804,7 +839,7 @@ export default function GangRunCalculator() {
   // Custom
   const addCustomProject = useCallback(() => {
     const nextLetter = String.fromCharCode(97 + customProjects.length);
-    setCustomProjects((prev) => [...prev, { name: nextLetter, stickerWidth: 3, stickerHeight: 3, shapeName: "diamond", vertices: PRESET_SHAPES.diamond.vertices, quantity: 0 }]);
+    setCustomProjects((prev) => [...prev, { name: nextLetter, stickerWidth: 3, stickerHeight: 3, shapeName: "triangle", vertices: PRESET_SHAPES.triangle.vertices, quantity: 0 }]);
   }, [customProjects.length]);
 
   const removeCustomProject = useCallback((index: number) => {
@@ -820,6 +855,7 @@ export default function GangRunCalculator() {
           const preset = PRESET_SHAPES[value];
           return { ...p, shapeName: value, vertices: preset ? preset.vertices : p.vertices };
         }
+        // Handle vertices update for new shape
         return { ...p, [field]: parseFloat(value) || 0 };
       })
     );

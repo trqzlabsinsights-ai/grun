@@ -1,9 +1,7 @@
 // ── Custom Shape Packer — Self-Drawn Polygon Stickers ────────────────────────
-// User provides polygon vertices (or picks a preset). Each sticker is a
-// custom shape within a rectangular bounding box. Bounding boxes are packed
-// on the sheet using MaxRect. SVG renders the actual polygon shape.
-//
-// Preset shapes: star, heart, diamond, hexagon, shield, arrow, cross, oval
+// Supports tessellation for interlocking shapes (triangle, diamond).
+// Non-tessellating shapes use bounding-rect packing.
+// Tessellating shapes pack 2 stickers per cell (up+down pair).
 
 import {
   findBestAllocationWithPacking,
@@ -44,7 +42,9 @@ export interface PlacedCustomGroup {
   stickerWidth: number;
   stickerHeight: number;
   shapeName: string;
-  vertices: Point[];       // normalized 0-1
+  vertices: Point[];       // normalized 0-1 for "up" orientation
+  flipVertices: Point[];   // normalized 0-1 for "down" orientation (tessellation pair)
+  tessellated: boolean;    // true = 2 stickers per cell (up+down pair)
   itemType: "custom";
 }
 
@@ -59,6 +59,7 @@ export interface CustomAllocationEntry {
   stickerWidth: number;
   stickerHeight: number;
   shapeName: string;
+  tessellated: boolean;
 }
 
 export interface CustomPlateResult {
@@ -92,73 +93,91 @@ export interface CustomCalculateResponse {
 
 // ── Preset Shapes ──────────────────────────────────────────────────────────
 // All vertices are in normalized coordinates (0,0) to (1,1)
+// tessellated: true means 2 stickers fit per bounding box cell (up+down pair)
 
-export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; icon: string }> = {
+export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; flipVertices: Point[]; icon: string; tessellated: boolean }> = {
   star: {
     label: "Star",
     icon: "★",
+    tessellated: false,
     vertices: [
       { x: 0.5, y: 0 }, { x: 0.618, y: 0.382 }, { x: 1, y: 0.382 },
       { x: 0.691, y: 0.618 }, { x: 0.809, y: 1 }, { x: 0.5, y: 0.764 },
       { x: 0.191, y: 1 }, { x: 0.309, y: 0.618 }, { x: 0, y: 0.382 },
       { x: 0.382, y: 0.382 },
     ],
+    flipVertices: [],
   },
   heart: {
     label: "Heart",
     icon: "♥",
+    tessellated: false,
     vertices: [
       { x: 0.5, y: 0.9 }, { x: 0.1, y: 0.5 }, { x: 0, y: 0.3 },
       { x: 0.05, y: 0.1 }, { x: 0.2, y: 0 }, { x: 0.35, y: 0.05 },
       { x: 0.5, y: 0.25 }, { x: 0.65, y: 0.05 }, { x: 0.8, y: 0 },
       { x: 0.95, y: 0.1 }, { x: 1, y: 0.3 }, { x: 0.9, y: 0.5 },
     ],
+    flipVertices: [],
   },
   diamond: {
     label: "Diamond",
     icon: "◆",
+    tessellated: true, // 2 diamonds per cell: ◆ top half + ◆ bottom half
     vertices: [
-      { x: 0.5, y: 0 }, { x: 1, y: 0.5 }, { x: 0.5, y: 1 }, { x: 0, y: 0.5 },
+      { x: 0.5, y: 0 }, { x: 1, y: 0.5 }, { x: 0.5, y: 0.5 }, { x: 0, y: 0.5 },
+    ],
+    flipVertices: [
+      { x: 0.5, y: 0.5 }, { x: 1, y: 0.5 }, { x: 0.5, y: 1 }, { x: 0, y: 0.5 },
     ],
   },
   hexagon: {
     label: "Hexagon",
     icon: "⬡",
+    tessellated: false,
     vertices: [
       { x: 0.25, y: 0 }, { x: 0.75, y: 0 }, { x: 1, y: 0.5 },
       { x: 0.75, y: 1 }, { x: 0.25, y: 1 }, { x: 0, y: 0.5 },
     ],
+    flipVertices: [],
   },
   shield: {
     label: "Shield",
     icon: "🛡",
+    tessellated: false,
     vertices: [
       { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 0.55 },
       { x: 0.5, y: 1 }, { x: 0, y: 0.55 },
     ],
+    flipVertices: [],
   },
   arrow: {
     label: "Arrow",
     icon: "▶",
+    tessellated: false,
     vertices: [
       { x: 0, y: 0.3 }, { x: 0.6, y: 0.3 }, { x: 0.6, y: 0 },
       { x: 1, y: 0.5 }, { x: 0.6, y: 1 }, { x: 0.6, y: 0.7 },
       { x: 0, y: 0.7 },
     ],
+    flipVertices: [],
   },
   cross: {
     label: "Cross",
     icon: "✚",
+    tessellated: false,
     vertices: [
       { x: 0.35, y: 0 }, { x: 0.65, y: 0 }, { x: 0.65, y: 0.35 },
       { x: 1, y: 0.35 }, { x: 1, y: 0.65 }, { x: 0.65, y: 0.65 },
       { x: 0.65, y: 1 }, { x: 0.35, y: 1 }, { x: 0.35, y: 0.65 },
       { x: 0, y: 0.65 }, { x: 0, y: 0.35 }, { x: 0.35, y: 0.35 },
     ],
+    flipVertices: [],
   },
   oval: {
     label: "Oval",
     icon: "⬭",
+    tessellated: false,
     vertices: (() => {
       const pts: Point[] = [];
       const steps = 24;
@@ -171,28 +190,51 @@ export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; i
       }
       return pts;
     })(),
+    flipVertices: [],
   },
   triangle: {
     label: "Triangle",
     icon: "▲",
+    tessellated: true, // 2 triangles per cell: ▲ top + ▼ bottom
     vertices: [
-      { x: 0.5, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 },
+      // ▲ pointing up — top half of bounding box
+      { x: 0.5, y: 0 }, { x: 1, y: 0.5 }, { x: 0, y: 0.5 },
+    ],
+    flipVertices: [
+      // ▼ pointing down — bottom half of bounding box
+      { x: 0, y: 0.5 }, { x: 1, y: 0.5 }, { x: 0.5, y: 1 },
     ],
   },
   octagon: {
     label: "Octagon",
     icon: "⯃",
+    tessellated: false,
     vertices: [
       { x: 0.3, y: 0 }, { x: 0.7, y: 0 }, { x: 1, y: 0.3 },
       { x: 1, y: 0.7 }, { x: 0.7, y: 1 }, { x: 0.3, y: 1 },
       { x: 0, y: 0.7 }, { x: 0, y: 0.3 },
     ],
+    flipVertices: [],
   },
 };
 
+// ── Tessellation Helpers ──────────────────────────────────────────────────
+
+/** Check if a shape name supports tessellation */
+export function isTessellated(shapeName: string): boolean {
+  return PRESET_SHAPES[shapeName]?.tessellated ?? false;
+}
+
+/** Get the effective outs per cell for a shape (2 for tessellated, 1 otherwise) */
+export function outsPerCell(shapeName: string): number {
+  return isTessellated(shapeName) ? 2 : 1;
+}
+
 // ── Custom Shape Packing ───────────────────────────────────────────────────
-// Strategy: treat each custom shape as its bounding rectangle,
-// pack bounding rects using MaxRect, then render actual polygon inside.
+// Strategy:
+// - Tessellated shapes (triangle, diamond): 2 stickers per bounding box cell
+//   The "outs" in the allocation = number of cells × 2
+// - Non-tessellated shapes: 1 sticker per cell (standard)
 
 function buildCustomPlateResult(
   projects: CustomProject[],
@@ -205,20 +247,25 @@ function buildCustomPlateResult(
   bleedIn: number,
   placedGroups: PlacedGroup[]
 ): CustomPlateResult {
-  const totalProduced = allocation.reduce((sum, outs) => sum + outs * runLength, 0);
+  const totalProduced = allocation.reduce((sum, outs, i) => {
+    const tessellated = isTessellated(projects[indices[i]].shapeName);
+    const effectiveOuts = tessellated ? outs * 2 : outs;
+    return sum + effectiveOuts * runLength;
+  }, 0);
   let totalOrderQty = 0;
 
   const allocationEntries: CustomAllocationEntry[] = indices.map((projIdx, i) => {
     const qty = projects[projIdx].quantity;
-    const outs = allocation[i];
-    const produced = outs * runLength;
+    const tessellated = isTessellated(projects[projIdx].shapeName);
+    const effectiveOuts = tessellated ? allocation[i] * 2 : allocation[i];
+    const produced = effectiveOuts * runLength;
     const overage = produced - qty;
     const overagePct = qty > 0 ? (overage / qty) * 100 : 0;
     totalOrderQty += qty;
     return {
       name: projects[projIdx].name,
       quantity: qty,
-      outs,
+      outs: effectiveOuts,
       produced,
       overage,
       overagePct,
@@ -226,33 +273,45 @@ function buildCustomPlateResult(
       stickerWidth: projects[projIdx].stickerWidth,
       stickerHeight: projects[projIdx].stickerHeight,
       shapeName: projects[projIdx].shapeName,
+      tessellated,
     };
   });
 
   const remappedGroups: PlacedCustomGroup[] = placedGroups.map((pg) => {
-    const localIdx = parseInt(pg.name.replace("p", ""));
-    const projIdx = indices[localIdx];
+    const projIdx = pg.projectIdx;
+    const proj = projects[projIdx];
+    const preset = PRESET_SHAPES[proj.shapeName] || PRESET_SHAPES.diamond;
+    const tessellated = isTessellated(proj.shapeName);
+    const effectiveOuts = tessellated ? pg.outs * 2 : pg.outs;
+
     return {
-      name: projects[projIdx].name,
+      name: proj.name,
       projectIdx: projIdx,
       shape: pg.shape,
-      outs: pg.outs,
+      outs: effectiveOuts,
       x: pg.x,
       y: pg.y,
       width: pg.width,
       height: pg.height,
-      stickerWidth: projects[projIdx].stickerWidth,
-      stickerHeight: projects[projIdx].stickerHeight,
-      shapeName: projects[projIdx].shapeName,
-      vertices: projects[projIdx].vertices,
+      stickerWidth: proj.stickerWidth,
+      stickerHeight: proj.stickerHeight,
+      shapeName: proj.shapeName,
+      vertices: tessellated ? preset.vertices : proj.vertices,
+      flipVertices: tessellated ? preset.flipVertices : [],
+      tessellated,
       itemType: "custom" as const,
     };
   });
 
-  // Material yield based on bounding box area (conservative)
+  // Material yield: use actual shape area for tessellated, bounding box for others
   let usedArea = 0;
   for (const alloc of allocationEntries) {
-    usedArea += alloc.produced * alloc.stickerWidth * alloc.stickerHeight;
+    if (alloc.tessellated) {
+      // Tessellated shapes fill the full bounding box (2 shapes = 1 cell of W×H)
+      usedArea += alloc.produced * (alloc.stickerWidth * alloc.stickerHeight / 2);
+    } else {
+      usedArea += alloc.produced * alloc.stickerWidth * alloc.stickerHeight;
+    }
   }
   const totalSheetArea = runLength * sheetW * sheetH;
   const materialYield = totalSheetArea > 0 ? (usedArea / totalSheetArea) * 100 : 0;
@@ -310,7 +369,7 @@ export function calculateCustom(req: {
 
   const bleedIn = bleed / 25.4;
 
-  // Capacity and max slots based on smallest bounding box
+  // Capacity and max slots
   const minW = Math.min(...projects.map((p) => p.stickerWidth));
   const minH = Math.min(...projects.map((p) => p.stickerHeight));
   const cellW = minW + 2 * bleedIn;
@@ -318,25 +377,29 @@ export function calculateCustom(req: {
   const maxPerSheet = Math.floor(sheetWidth / cellW) * Math.floor(sheetHeight / cellH);
   const maxSlots = Math.max(maxPerSheet, projects.length * 2);
 
-  // Convert CustomProject to ProjectInput for the MaxRect packer
-  const projectInputs: ProjectInput[] = projects.map((p) => ({
-    name: p.name,
-    quantity: p.quantity,
-    stickerWidth: p.stickerWidth,
-    stickerHeight: p.stickerHeight,
-  }));
+  // For tessellated shapes, the demand is halved because each cell produces 2 stickers
+  // Convert CustomProject to ProjectInput with adjusted demands
+  const projectInputs: ProjectInput[] = projects.map((p) => {
+    const tessellated = isTessellated(p.shapeName);
+    return {
+      name: p.name,
+      quantity: tessellated ? Math.ceil(p.quantity / 2) : p.quantity,
+      stickerWidth: p.stickerWidth,
+      stickerHeight: p.stickerHeight,
+    };
+  });
 
   // Single plate
   let singlePlateResult: CustomPlateResult | null = null;
   if (projects.length * 2 <= maxSlots) {
-    const demands = projects.map((p) => p.quantity);
-    const stickerSizes = projects.map((p) => ({ width: p.stickerWidth, height: p.stickerHeight }));
+    const demands = projectInputs.map((p) => p.quantity);
+    const stickerSizes = projectInputs.map((p) => ({ width: p.stickerWidth, height: p.stickerHeight }));
     const result = findBestAllocationWithPacking(
       demands, stickerSizes, sheetWidth, sheetHeight, bleedIn, maxSlots
     );
     if (result) {
-      const plateRes = buildPlateResult(
-        projectInputs,
+      singlePlateResult = buildCustomPlateResult(
+        projects,
         projects.map((_, i) => i),
         result.allocation,
         result.shapes,
@@ -344,28 +407,6 @@ export function calculateCustom(req: {
         sheetWidth, sheetHeight, bleedIn,
         result.placedGroups
       );
-
-      // Convert PlateResult to CustomPlateResult
-      singlePlateResult = {
-        allocation: plateRes.allocation.map((a, i) => ({
-          ...a,
-          shapeName: projects[i].shapeName,
-        })),
-        runLength: plateRes.runLength,
-        totalSheets: plateRes.totalSheets,
-        totalProduced: plateRes.totalProduced,
-        totalOverage: plateRes.totalOverage,
-        materialYield: plateRes.materialYield,
-        placedGroups: plateRes.placedGroups.map((pg) => {
-          const projIdx = pg.projectIdx;
-          return {
-            ...pg,
-            shapeName: projects[projIdx].shapeName,
-            vertices: projects[projIdx].vertices,
-            itemType: "custom" as const,
-          };
-        }),
-      };
     }
   }
 
@@ -374,42 +415,50 @@ export function calculateCustom(req: {
   if (projects.length >= 2) {
     const twoPlate = findBestTwoPlate(projectInputs, maxSlots, sheetWidth, sheetHeight, bleedIn);
     if (twoPlate) {
-      const convertPlate = (pr: PlateResult, indices: number[]) => {
-        const customGroups: PlacedCustomGroup[] = pr.placedGroups.map((pg) => {
-          const projIdx = pg.projectIdx;
-          return {
-            ...pg,
-            name: projects[projIdx].name,
-            projectIdx: projIdx,
-            shapeName: projects[projIdx].shapeName,
-            vertices: projects[projIdx].vertices,
-            itemType: "custom" as const,
-          };
-        });
-        return {
-          allocation: pr.allocation.map((a) => {
-            const projIdx = a.name ? projects.findIndex((p) => p.name === a.name) : -1;
-            return { ...a, shapeName: projIdx >= 0 ? projects[projIdx].shapeName : "diamond" };
-          }),
-          runLength: pr.runLength,
-          totalSheets: pr.totalSheets,
-          totalProduced: pr.totalProduced,
-          totalOverage: pr.totalOverage,
-          materialYield: pr.materialYield,
-          placedGroups: customGroups,
-        } as CustomPlateResult;
-      };
+      const p1Indices = twoPlate.plate1ProjectIndices;
+      const p2Indices = twoPlate.plate2ProjectIndices;
+
+      const plate1 = buildCustomPlateResult(
+        projects, p1Indices,
+        twoPlate.plate1.allocation.map((a) => a.outs),
+        twoPlate.plate1.allocation.map((a) => a.groupShape),
+        twoPlate.plate1.runLength,
+        sheetWidth, sheetHeight, bleedIn,
+        twoPlate.plate1.placedGroups
+      );
+      const plate2 = buildCustomPlateResult(
+        projects, p2Indices,
+        twoPlate.plate2.allocation.map((a) => a.outs),
+        twoPlate.plate2.allocation.map((a) => a.groupShape),
+        twoPlate.plate2.runLength,
+        sheetWidth, sheetHeight, bleedIn,
+        twoPlate.plate2.placedGroups
+      );
+
+      const combinedProduced = plate1.totalProduced + plate2.totalProduced;
+      const totalOrderQty = projects.reduce((s, p) => s + p.quantity, 0);
+
+      let totalUsedArea = 0;
+      for (const alloc of [...plate1.allocation, ...plate2.allocation]) {
+        if (alloc.tessellated) {
+          totalUsedArea += alloc.produced * (alloc.stickerWidth * alloc.stickerHeight / 2);
+        } else {
+          totalUsedArea += alloc.produced * alloc.stickerWidth * alloc.stickerHeight;
+        }
+      }
+      const totalSheets = twoPlate.totalSheets;
+      const totalSheetArea = totalSheets * sheetWidth * sheetHeight;
+      const materialYield = totalSheetArea > 0 ? (totalUsedArea / totalSheetArea) * 100 : 0;
 
       twoPlateResult = {
-        plate1: convertPlate(twoPlate.plate1, twoPlate.plate1ProjectIndices),
-        plate2: convertPlate(twoPlate.plate2, twoPlate.plate2ProjectIndices),
-        totalSheets: twoPlate.totalSheets,
-        totalProduced: twoPlate.totalProduced,
-        totalOverage: twoPlate.totalOverage,
-        materialYield: twoPlate.materialYield,
-        sheetsSaved: twoPlate.sheetsSaved,
-        plate1ProjectIndices: twoPlate.plate1ProjectIndices,
-        plate2ProjectIndices: twoPlate.plate2ProjectIndices,
+        plate1, plate2,
+        totalSheets,
+        totalProduced: combinedProduced,
+        totalOverage: combinedProduced - totalOrderQty,
+        materialYield,
+        sheetsSaved: 0,
+        plate1ProjectIndices: p1Indices,
+        plate2ProjectIndices: p2Indices,
       };
     }
   }
