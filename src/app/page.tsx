@@ -94,6 +94,12 @@ interface GroupShape {
   h: number;
 }
 
+interface TessPosition {
+  x: number;
+  y: number;
+  flip: boolean;
+}
+
 interface PlacedGroup {
   name: string;
   projectIdx: number;
@@ -113,6 +119,7 @@ interface PlacedGroup {
   vertices?: { x: number; y: number }[];
   flipVertices?: { x: number; y: number }[];
   tessellated?: boolean;
+  tessPositions?: TessPosition[];
 }
 
 interface AllocationEntry {
@@ -213,7 +220,7 @@ const MODE_CONFIG: Record<PackMode, { label: string; icon: React.ReactNode; desc
   "rect-same": { label: "Same Rect", icon: <Square className="w-4 h-4" />, desc: "All stickers same W\u00d7H" },
   "rect-mixed": { label: "Mixed Rect", icon: <LayoutGrid className="w-4 h-4" />, desc: "Each project has own W\u00d7H" },
   "circular": { label: "Circular", icon: <CircleIcon className="w-4 h-4" />, desc: "Circle stickers by diameter" },
-  "custom": { label: "Custom Shape", icon: <Hexagon className="w-4 h-4" />, desc: "Preset polygons in bounding box" },
+  "custom": { label: "Custom Shape", icon: <Hexagon className="w-4 h-4" />, desc: "Tessellated polygons" },
 };
 
 // ── Registration Mark ──────────────────────────────────────────────────────
@@ -358,8 +365,51 @@ function SVGPlateVisualization({
                   </>
                 )}
 
-                {/* ── CUSTOM SHAPE MODE ── */}
-                {itemType === "custom" && group.vertices && group.vertices.length >= 3 && group.stickerWidth && group.stickerHeight && (
+                {/* ── CUSTOM SHAPE MODE (tessellation) ── */}
+                {itemType === "custom" && group.tessellated && group.tessPositions && group.tessPositions.length > 0 && group.vertices && group.stickerWidth && group.stickerHeight && (
+                  <>
+                    {group.tessPositions.map((tp, ti) => {
+                      const sw = group.stickerWidth!;
+                      const sh = group.stickerHeight!;
+                      const inset = 0.05;
+                      // Use flipVertices for inverted positions (▼), normal vertices for upright (▲)
+                      const verts = tp.flip && group.flipVertices && group.flipVertices.length >= 3
+                        ? group.flipVertices
+                        : group.vertices!;
+
+                      const points = verts.map(
+                        (v) => `${tp.x + v.x * sw},${tp.y + v.y * sh}`
+                      ).join(" ");
+                      const diePoints = verts.map(
+                        (v) => `${tp.x + inset + v.x * (sw - 2 * inset)},${tp.y + inset + v.y * (sh - 2 * inset)}`
+                      ).join(" ");
+
+                      return (
+                        <g key={`tess-${gi}-${ti}`}>
+                          <polygon
+                            points={points}
+                            fill={color}
+                            fillOpacity={tp.flip ? 0.14 : 0.18}
+                            stroke={color}
+                            strokeWidth={0.04}
+                            strokeOpacity={tp.flip ? 0.6 : 0.7}
+                          />
+                          <polygon
+                            points={diePoints}
+                            fill="none"
+                            stroke="#f97316"
+                            strokeWidth={0.02}
+                            strokeDasharray="0.1 0.06"
+                            strokeOpacity={0.5}
+                          />
+                        </g>
+                      );
+                    })}
+                  </>
+                )}
+
+                {/* ── CUSTOM SHAPE MODE (non-tessellated, grid) ── */}
+                {itemType === "custom" && !group.tessellated && group.vertices && group.vertices.length >= 3 && group.stickerWidth && group.stickerHeight && (
                   <>
                     {Array.from({ length: shape.h }).flatMap((_, row) =>
                       Array.from({ length: shape.w }).map((_, col) => {
@@ -369,7 +419,6 @@ function SVGPlateVisualization({
                         const sh = group.stickerHeight!;
                         const inset = 0.05;
 
-                        // Primary shape (▲ up)
                         const points = group.vertices!.map(
                           (v) => `${cellX + v.x * sw},${cellY + v.y * sh}`
                         ).join(" ");
@@ -377,18 +426,8 @@ function SVGPlateVisualization({
                           (v) => `${cellX + inset + v.x * (sw - 2 * inset)},${cellY + inset + v.y * (sh - 2 * inset)}`
                         ).join(" ");
 
-                        // Flip shape (▼ down) for tessellated shapes
-                        const hasFlip = group.tessellated && group.flipVertices && group.flipVertices.length >= 3;
-                        const flipPoints = hasFlip ? group.flipVertices!.map(
-                          (v) => `${cellX + v.x * sw},${cellY + v.y * sh}`
-                        ).join(" ") : "";
-                        const flipDiePoints = hasFlip ? group.flipVertices!.map(
-                          (v) => `${cellX + inset + v.x * (sw - 2 * inset)},${cellY + inset + v.y * (sh - 2 * inset)}`
-                        ).join(" ") : "";
-
                         return (
                           <g key={`shape-${gi}-${row}-${col}`}>
-                            {/* Primary shape */}
                             <polygon
                               points={points}
                               fill={color}
@@ -405,27 +444,6 @@ function SVGPlateVisualization({
                               strokeDasharray="0.1 0.06"
                               strokeOpacity={0.5}
                             />
-                            {/* Flip/tessellated shape (▼) */}
-                            {hasFlip && (
-                              <>
-                                <polygon
-                                  points={flipPoints}
-                                  fill={color}
-                                  fillOpacity={0.14}
-                                  stroke={color}
-                                  strokeWidth={0.04}
-                                  strokeOpacity={0.6}
-                                />
-                                <polygon
-                                  points={flipDiePoints}
-                                  fill="none"
-                                  stroke="#f97316"
-                                  strokeWidth={0.02}
-                                  strokeDasharray="0.1 0.06"
-                                  strokeOpacity={0.5}
-                                />
-                              </>
-                            )}
                           </g>
                         );
                       })
@@ -719,7 +737,7 @@ function AllocationTable({ allocation, projectColors, projectNames, packMode }: 
                 ) : packMode === "custom" ? (
                   <TableCell className="text-slate-300 font-mono text-xs">
                     <span className="mr-1">{PRESET_SHAPES[entry.shapeName || "diamond"]?.icon || "\u25C6"}</span>
-                    {entry.shapeName || "diamond"} ({entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;){entry.tessellated ? " 2/cell" : ""}
+                    {entry.shapeName || "diamond"} ({entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;){entry.tessellated ? " tess" : ""}
                   </TableCell>
                 ) : (
                   <TableCell className="text-slate-300 font-mono text-xs">{entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;</TableCell>
@@ -940,7 +958,7 @@ export default function GangRunCalculator() {
       case "rect-same": return "All stickers same size, per-project quantities only";
       case "rect-mixed": return "Sheet size, bleed, and project quantities with per-project sticker dimensions";
       case "circular": return "Circle stickers with per-project diameter and hexagonal packing";
-      case "custom": return "Custom polygon shapes within rectangular bounding boxes";
+      case "custom": return "Preset polygon shapes with hex tessellation for triangles & diamonds";
     }
   };
 
