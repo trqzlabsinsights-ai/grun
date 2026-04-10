@@ -137,12 +137,13 @@ const DEFAULT_PROJECTS: ProjectInput[] = [
 
 // ── Registration Mark Component ────────────────────────────────────────────
 
-function RegMark({ x, y }: { x: number; y: number }) {
+function RegMark({ x, y, scale = 1 }: { x: number; y: number; scale?: number }) {
+  const r = 0.22 * scale;
   return (
     <g>
-      <line x1={x - 0.25} y1={y} x2={x + 0.25} y2={y} stroke="#94a3b8" strokeWidth={0.04} />
-      <line x1={x} y1={y - 0.25} x2={x} y2={y + 0.25} stroke="#94a3b8" strokeWidth={0.04} />
-      <circle cx={x} cy={y} r={0.08} fill="none" stroke="#94a3b8" strokeWidth={0.03} />
+      <line x1={x - r} y1={y} x2={x + r} y2={y} stroke="#f97316" strokeWidth={0.04} />
+      <line x1={x} y1={y - r} x2={x} y2={y + r} stroke="#f97316" strokeWidth={0.04} />
+      <circle cx={x} cy={y} r={0.07 * scale} fill="none" stroke="#f97316" strokeWidth={0.03} />
     </g>
   );
 }
@@ -164,23 +165,67 @@ function SVGGridVisualization({
 }) {
   const { cols, rows, cellWidth, cellHeight, bleedInches, stickerWidth, stickerHeight, sheetWidth, sheetHeight } = capacity;
 
+  // Calculate gutter spacing
+  const totalCellW = cols * cellWidth;
+  const totalCellH = rows * cellHeight;
+  const gutterW = cols > 1 ? (sheetWidth - totalCellW) / (cols - 1) : 0;
+  const gutterH = rows > 1 ? (sheetHeight - totalCellH) / (rows - 1) : 0;
+
   // Build slot assignment array (left-to-right, top-to-bottom)
-  const slotAssignment: { projectIdx: number; col: number; row: number }[] = [];
+  const slotAssignment: { projectName: string; projectIdx: number; col: number; row: number }[] = [];
   let slotIdx = 0;
   for (const entry of allocation) {
     const pIdx = projectNames.indexOf(entry.name);
     for (let s = 0; s < entry.outs; s++) {
       const col = slotIdx % cols;
       const row = Math.floor(slotIdx / cols);
-      slotAssignment.push({ projectIdx: pIdx >= 0 ? pIdx : 0, col, row });
+      slotAssignment.push({ projectName: entry.name, projectIdx: pIdx >= 0 ? pIdx : 0, col, row });
       slotIdx++;
     }
   }
 
+  // Identify contiguous groups (flood fill)
+  const grid: (string | null)[][] = Array.from({ length: rows }, () => Array(cols).fill(null));
+  for (const slot of slotAssignment) {
+    if (slot.row < rows && slot.col < cols) {
+      grid[slot.row][slot.col] = slot.projectName;
+    }
+  }
+
+  const visited: boolean[][] = Array.from({ length: rows }, () => Array(cols).fill(false));
+  interface GroupInfo { name: string; projectIdx: number; cells: { col: number; row: number }[]; }
+  const groups: GroupInfo[] = [];
+
+  function floodFill(r: number, c: number, name: string): { col: number; row: number }[] {
+    if (r < 0 || r >= rows || c < 0 || c >= cols) return [];
+    if (visited[r][c] || grid[r][c] !== name) return [];
+    visited[r][c] = true;
+    const cells = [{ col: c, row: r }];
+    cells.push(...floodFill(r + 1, c, name));
+    cells.push(...floodFill(r - 1, c, name));
+    cells.push(...floodFill(r, c + 1, name));
+    cells.push(...floodFill(r, c - 1, name));
+    return cells;
+  }
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (!visited[r][c] && grid[r][c]) {
+        const cells = floodFill(r, c, grid[r][c]!);
+        const pIdx = projectNames.indexOf(grid[r][c]!);
+        groups.push({ name: grid[r][c]!, projectIdx: pIdx >= 0 ? pIdx : 0, cells });
+      }
+    }
+  }
+
+  // Helper: cell position in SVG coordinates
+  const cellX = (col: number) => col * (cellWidth + gutterW);
+  const cellY = (row: number) => row * (cellHeight + gutterH);
+
   // SVG dimensions
-  const padding = 1.2;
+  const padding = 1.5;
   const svgW = sheetWidth + padding * 2;
-  const svgH = sheetHeight + padding * 2;
+  const svgH = sheetHeight + padding * 2 + 1.2;
 
   return (
     <div className="w-full">
@@ -188,98 +233,169 @@ function SVGGridVisualization({
       <div className="w-full overflow-x-auto">
         <svg
           viewBox={`${-padding} ${-padding} ${svgW} ${svgH}`}
-          className="w-full max-w-3xl mx-auto"
-          style={{ minHeight: 200 }}
+          className="w-full max-w-4xl mx-auto"
+          style={{ minHeight: 280 }}
         >
-          {/* Sheet background */}
-          <rect x={0} y={0} width={sheetWidth} height={sheetHeight} fill="#1e293b" stroke="#475569" strokeWidth={0.06} />
+          {/* Defs */}
+          <defs>
+            <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#06b6d4" />
+            </marker>
+          </defs>
 
-          {/* Grid cells */}
-          {slotAssignment.map((slot, i) => {
-            const x = slot.col * cellWidth;
-            const y = slot.row * cellHeight;
-            const color = projectColors[slot.projectIdx] || "#64748b";
+          {/* Sheet background */}
+          <rect x={0} y={0} width={sheetWidth} height={sheetHeight} rx={0.08} fill="#1e293b" stroke="#475569" strokeWidth={0.06} />
+
+          {/* Render groups (contiguous project blocks) */}
+          {groups.map((group, gi) => {
+            const color = projectColors[group.projectIdx] || "#64748b";
+            const minCol = Math.min(...group.cells.map(c => c.col));
+            const maxCol = Math.max(...group.cells.map(c => c.col));
+            const minRow = Math.min(...group.cells.map(c => c.row));
+            const maxRow = Math.max(...group.cells.map(c => c.row));
+
+            // Group bounding box
+            const gx = cellX(minCol);
+            const gy = cellY(minRow);
+            const gw = (maxCol - minCol + 1) * cellWidth + (maxCol - minCol) * gutterW;
+            const gh = (maxRow - minRow + 1) * cellHeight + (maxRow - minRow) * gutterH;
 
             return (
-              <g key={i}>
-                {/* Cell background */}
-                <rect x={x} y={y} width={cellWidth} height={cellHeight} fill={color} fillOpacity={0.2} stroke={color} strokeWidth={0.04} />
-                {/* Bleed boundary (sticker area) */}
-                <rect
-                  x={x + bleedInches}
-                  y={y + bleedInches}
-                  width={stickerWidth}
-                  height={stickerHeight}
-                  fill={color}
-                  fillOpacity={0.15}
-                  stroke="#f97316"
-                  strokeWidth={0.03}
-                  strokeDasharray="0.15 0.1"
-                />
-                {/* Project label */}
+              <g key={`group-${gi}`}>
+                {/* Group background block */}
+                <rect x={gx} y={gy} width={gw} height={gh} rx={0.1} fill={color} fillOpacity={0.15} stroke={color} strokeWidth={0.08} />
+
+                {/* Individual cells within group */}
+                {group.cells.map((cell, ci) => {
+                  const cx = cellX(cell.col);
+                  const cy = cellY(cell.row);
+                  return (
+                    <g key={`cell-${gi}-${ci}`}>
+                      {/* Cell background */}
+                      <rect x={cx} y={cy} width={cellWidth} height={cellHeight} rx={0.06} fill={color} fillOpacity={0.08} stroke={color} strokeWidth={0.03} strokeOpacity={0.6} />
+                      {/* Bleed boundary (die-cut line area) */}
+                      <rect
+                        x={cx + bleedInches}
+                        y={cy + bleedInches}
+                        width={stickerWidth}
+                        height={stickerHeight}
+                        rx={0.04}
+                        fill={color}
+                        fillOpacity={0.12}
+                        stroke="#f97316"
+                        strokeWidth={0.025}
+                        strokeDasharray="0.12 0.08"
+                        strokeOpacity={0.6}
+                      />
+                      {/* Coordinate label */}
+                      <text
+                        x={cx + cellWidth - 0.15}
+                        y={cy + cellHeight - 0.12}
+                        textAnchor="end"
+                        dominantBaseline="auto"
+                        fill="#475569"
+                        fontSize={0.22}
+                        fontFamily="monospace"
+                      >
+                        {cell.col},{cell.row}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Group label (centered) */}
                 <text
-                  x={x + cellWidth / 2}
-                  y={y + cellHeight / 2 - 0.25}
+                  x={gx + gw / 2}
+                  y={gy + gh / 2 - 0.15}
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fill={color}
-                  fontSize={0.55}
+                  fontSize={0.65}
                   fontWeight="bold"
                   fontFamily="monospace"
                 >
-                  {allocation.find((a) => a.name === projectNames[slot.projectIdx])?.name || ""}
+                  {group.name}
                 </text>
-                {/* Cell position */}
                 <text
-                  x={x + cellWidth / 2}
-                  y={y + cellHeight / 2 + 0.35}
+                  x={gx + gw / 2}
+                  y={gy + gh / 2 + 0.35}
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fill="#94a3b8"
-                  fontSize={0.3}
+                  fontSize={0.25}
                   fontFamily="monospace"
                 >
-                  {slot.col + 1},{slot.row + 1}
+                  {group.cells.length} out{group.cells.length > 1 ? "s" : ""}
                 </text>
               </g>
             );
           })}
 
-          {/* Registration marks */}
-          <RegMark x={-0.3} y={-0.3} />
-          <RegMark x={sheetWidth + 0.3} y={-0.3} />
-          <RegMark x={-0.3} y={sheetHeight + 0.3} />
-          <RegMark x={sheetWidth + 0.3} y={sheetHeight + 0.3} />
+          {/* Gutter lines (dashed) */}
+          {cols > 1 && Array.from({ length: cols - 1 }).map((_, i) => {
+            const x = (i + 1) * cellWidth + i * gutterW + gutterW / 2;
+            return (
+              <line key={`gv-${i}`} x1={x} y1={0} x2={x} y2={sheetHeight} stroke="#334155" strokeWidth={0.02} strokeDasharray="0.15 0.15" />
+            );
+          })}
+          {rows > 1 && Array.from({ length: rows - 1 }).map((_, i) => {
+            const y = (i + 1) * cellHeight + i * gutterH + gutterH / 2;
+            return (
+              <line key={`gh-${i}`} x1={0} y1={y} x2={sheetWidth} y2={y} stroke="#334155" strokeWidth={0.02} strokeDasharray="0.15 0.15" />
+            );
+          })}
 
-          {/* Dimension annotations */}
-          {/* Top: sheet width */}
-          <line x1={0} y1={-0.6} x2={sheetWidth} y2={-0.6} stroke="#64748b" strokeWidth={0.03} />
-          <line x1={0} y1={-0.7} x2={0} y2={-0.5} stroke="#64748b" strokeWidth={0.03} />
-          <line x1={sheetWidth} y1={-0.7} x2={sheetWidth} y2={-0.5} stroke="#64748b" strokeWidth={0.03} />
-          <text x={sheetWidth / 2} y={-0.75} textAnchor="middle" fill="#94a3b8" fontSize={0.45} fontFamily="monospace">
+          {/* Registration marks */}
+          <RegMark x={-0.4} y={-0.4} />
+          <RegMark x={sheetWidth + 0.4} y={-0.4} />
+          <RegMark x={-0.4} y={sheetHeight + 0.4} />
+          <RegMark x={sheetWidth + 0.4} y={sheetHeight + 0.4} />
+
+          {/* Top dimension: sheet width */}
+          <line x1={0} y1={-0.8} x2={sheetWidth} y2={-0.8} stroke="#64748b" strokeWidth={0.03} />
+          <line x1={0} y1={-0.95} x2={0} y2={-0.65} stroke="#64748b" strokeWidth={0.03} />
+          <line x1={sheetWidth} y1={-0.95} x2={sheetWidth} y2={-0.65} stroke="#64748b" strokeWidth={0.03} />
+          <text x={sheetWidth / 2} y={-1.05} textAnchor="middle" fill="#94a3b8" fontSize={0.4} fontFamily="monospace">
             {sheetWidth}&quot;
           </text>
 
-          {/* Right: sheet height */}
-          <line x1={sheetWidth + 0.6} y1={0} x2={sheetWidth + 0.6} y2={sheetHeight} stroke="#64748b" strokeWidth={0.03} />
-          <line x1={sheetWidth + 0.5} y1={0} x2={sheetWidth + 0.7} y2={0} stroke="#64748b" strokeWidth={0.03} />
-          <line x1={sheetWidth + 0.5} y1={sheetHeight} x2={sheetWidth + 0.7} y2={sheetHeight} stroke="#64748b" strokeWidth={0.03} />
+          {/* Right dimension: sheet height */}
+          <line x1={sheetWidth + 0.8} y1={0} x2={sheetWidth + 0.8} y2={sheetHeight} stroke="#64748b" strokeWidth={0.03} />
+          <line x1={sheetWidth + 0.65} y1={0} x2={sheetWidth + 0.95} y2={0} stroke="#64748b" strokeWidth={0.03} />
+          <line x1={sheetWidth + 0.65} y1={sheetHeight} x2={sheetWidth + 0.95} y2={sheetHeight} stroke="#64748b" strokeWidth={0.03} />
           <text
-            x={sheetWidth + 0.85}
+            x={sheetWidth + 1.15}
             y={sheetHeight / 2}
             textAnchor="middle"
             fill="#94a3b8"
-            fontSize={0.45}
+            fontSize={0.4}
             fontFamily="monospace"
-            transform={`rotate(90, ${sheetWidth + 0.85}, ${sheetHeight / 2})`}
+            transform={`rotate(90, ${sheetWidth + 1.15}, ${sheetHeight / 2})`}
           >
             {sheetHeight}&quot;
           </text>
 
-          {/* Grid info label */}
-          <text x={sheetWidth / 2} y={sheetHeight + 0.7} textAnchor="middle" fill="#64748b" fontSize={0.38} fontFamily="monospace">
-            {cols}×{rows} = {cols * rows} slots • Cell: {cellWidth.toFixed(3)}&quot; × {cellHeight.toFixed(3)}&quot;
+          {/* Cell size annotation */}
+          <text x={sheetWidth / 2} y={sheetHeight + 0.5} textAnchor="middle" fill="#64748b" fontSize={0.3} fontFamily="monospace">
+            {cols}×{rows} = {cols * rows} slots | Cell: {cellWidth.toFixed(3)}&quot; × {cellHeight.toFixed(3)}&quot; | Gutter: {gutterW.toFixed(3)}&quot; × {gutterH.toFixed(3)}&quot;
           </text>
+
+          {/* Grain direction arrow */}
+          <line x1={0.5} y1={sheetHeight + 0.9} x2={sheetWidth - 0.5} y2={sheetHeight + 0.9} stroke="#06b6d4" strokeWidth={0.04} markerEnd="url(#arrowhead)" />
+          <text x={sheetWidth / 2} y={sheetHeight + 0.8} textAnchor="middle" fill="#06b6d4" fontSize={0.25} fontFamily="monospace">
+            GRAIN DIRECTION
+          </text>
+
+          {/* Legend */}
+          <g transform={`translate(0, ${sheetHeight + 1.15})`}>
+            <rect x={0} y={0} width={0.35} height={0.25} rx={0.04} fill="#f97316" fillOpacity={0.3} stroke="#f97316" strokeWidth={0.02} strokeDasharray="0.08 0.05" />
+            <text x={0.45} y={0.18} fill="#94a3b8" fontSize={0.25} fontFamily="monospace">= Bleed boundary (die-cut safe zone)</text>
+
+            <circle cx={1.2} cy={0.12} r={0.1} fill="none" stroke="#f97316" strokeWidth={0.02} />
+            <line x1={1.05} y1={0.12} x2={1.35} y2={0.12} stroke="#f97316" strokeWidth={0.02} />
+            <line x1={1.2} y1={-0.03} x2={1.2} y2={0.27} stroke="#f97316" strokeWidth={0.02} />
+            <text x={1.5} y={0.18} fill="#94a3b8" fontSize={0.25} fontFamily="monospace">= Registration mark</text>
+          </g>
         </svg>
       </div>
     </div>
