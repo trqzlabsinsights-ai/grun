@@ -96,10 +96,10 @@ function calculateCapacity(
 
 // ── Single Plate Optimization (Exhaustive Search with Pruning) ─────────────
 
-function findBestAllocation(demands: number[], slots: number): { allocation: number[]; runLength: number } | null {
+function findBestAllocation(demands: number[], slots: number, minOuts: number = 2): { allocation: number[]; runLength: number } | null {
   const n = demands.length;
   if (n === 0) return null;
-  if (n > slots) return null; // Can't fit all projects
+  if (n * minOuts > slots) return null; // Can't fit all projects with minimum outs
 
   let bestL = Infinity;
   let bestAlloc: number[] | null = null;
@@ -108,7 +108,7 @@ function findBestAllocation(demands: number[], slots: number): { allocation: num
   function search(idx: number, remaining: number): void {
     if (idx === n - 1) {
       current[idx] = remaining;
-      if (remaining >= 1) {
+      if (remaining >= minOuts) {
         let L = 0;
         for (let i = 0; i < n; i++) {
           L = Math.max(L, Math.ceil(demands[i] / current[i]));
@@ -121,9 +121,9 @@ function findBestAllocation(demands: number[], slots: number): { allocation: num
       return;
     }
 
-    const minRemaining = n - idx - 1; // each remaining project needs at least 1
+    const minRemaining = (n - idx - 1) * minOuts; // each remaining project needs at least minOuts
     const maxVal = remaining - minRemaining;
-    for (let val = 1; val <= maxVal; val++) {
+    for (let val = minOuts; val <= maxVal; val++) {
       current[idx] = val;
       // Pruning: compute partial run length
       let partialL = 0;
