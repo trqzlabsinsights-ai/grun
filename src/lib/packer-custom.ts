@@ -6,9 +6,6 @@
 // Preset shapes: star, heart, diamond, hexagon, shield, arrow, cross, oval
 
 import {
-  getGroupShapes,
-  groupDimensions,
-  maxRectPack,
   findBestAllocationWithPacking,
   buildPlateResult,
   findBestTwoPlate,
@@ -359,8 +356,8 @@ export function calculateCustom(req: {
         totalProduced: plateRes.totalProduced,
         totalOverage: plateRes.totalOverage,
         materialYield: plateRes.materialYield,
-        placedGroups: plateRes.placedGroups.map((pg, i) => {
-          const projIdx = parseInt(pg.name.replace("p", ""));
+        placedGroups: plateRes.placedGroups.map((pg) => {
+          const projIdx = pg.projectIdx;
           return {
             ...pg,
             shapeName: projects[projIdx].shapeName,
@@ -379,8 +376,7 @@ export function calculateCustom(req: {
     if (twoPlate) {
       const convertPlate = (pr: PlateResult, indices: number[]) => {
         const customGroups: PlacedCustomGroup[] = pr.placedGroups.map((pg) => {
-          const localIdx = parseInt(pg.name.replace("p", ""));
-          const projIdx = indices[localIdx];
+          const projIdx = pg.projectIdx;
           return {
             ...pg,
             name: projects[projIdx].name,
@@ -392,8 +388,8 @@ export function calculateCustom(req: {
         });
         return {
           allocation: pr.allocation.map((a) => {
-            const projIdx = indices[pr.allocation.indexOf(a)];
-            return { ...a, shapeName: projects[projIdx]?.shapeName || "diamond" };
+            const projIdx = a.name ? projects.findIndex((p) => p.name === a.name) : -1;
+            return { ...a, shapeName: projIdx >= 0 ? projects[projIdx].shapeName : "diamond" };
           }),
           runLength: pr.runLength,
           totalSheets: pr.totalSheets,

@@ -78,7 +78,7 @@ export interface CapacityResult {
 
 // ── Group Shape Utilities ──────────────────────────────────────────────────
 
-interface GroupWithDims {
+export interface GroupWithDims {
   name: string;
   projectIdx: number;
   shape: GroupShape;
@@ -134,7 +134,7 @@ interface PlacedRect {
   height: number;
 }
 
-function maxRectPack(
+export function maxRectPack(
   groups: GroupWithDims[],
   sheetW: number,
   sheetH: number
