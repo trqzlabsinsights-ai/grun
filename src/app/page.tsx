@@ -220,7 +220,7 @@ const MODE_CONFIG: Record<PackMode, { label: string; icon: React.ReactNode; desc
   "rect-same": { label: "Same Rect", icon: <Square className="w-4 h-4" />, desc: "All stickers same W\u00d7H" },
   "rect-mixed": { label: "Mixed Rect", icon: <LayoutGrid className="w-4 h-4" />, desc: "Each project has own W\u00d7H" },
   "circular": { label: "Circular", icon: <CircleIcon className="w-4 h-4" />, desc: "Circle stickers by diameter" },
-  "custom": { label: "Custom Shape", icon: <Hexagon className="w-4 h-4" />, desc: "Tessellated polygons" },
+  "custom": { label: "Custom Shape", icon: <Hexagon className="w-4 h-4" />, desc: "▲▼ tessellated polygons" },
 };
 
 // ── Registration Mark ──────────────────────────────────────────────────────
@@ -958,7 +958,7 @@ export default function GangRunCalculator() {
       case "rect-same": return "All stickers same size, per-project quantities only";
       case "rect-mixed": return "Sheet size, bleed, and project quantities with per-project sticker dimensions";
       case "circular": return "Circle stickers with per-project diameter and hexagonal packing";
-      case "custom": return "Preset polygon shapes with hex tessellation for triangles & diamonds";
+      case "custom": return "Preset polygon shapes with ▲▼ tessellation for triangles & hex-offset for diamonds";
     }
   };
 

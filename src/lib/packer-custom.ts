@@ -1,8 +1,8 @@
 // ── Custom Shape Packer — Self-Drawn Polygon Stickers ────────────────────────
-// Supports hex-like tessellation for interlocking shapes (triangle, diamond).
+// Supports two tessellation styles:
+//   "alternate-col" — alternating ▲▼ within each row (triangles)
+//   "hex-offset"    — hex-like offset rows (diamonds)
 // Non-tessellating shapes use bounding-rect packing.
-// Tessellating shapes: each position = 1 full-size sticker, arranged in
-// hex-offset rows (even rows upright, odd rows inverted + offset by half).
 
 import {
   maxRectPack,
@@ -15,6 +15,9 @@ export interface Point {
   x: number;
   y: number;
 }
+
+/** Tessellation style determines how shapes interlock */
+export type TessStyle = "alternate-col" | "hex-offset";
 
 export interface CustomProject {
   name: string;
@@ -45,7 +48,7 @@ export interface PlacedCustomGroup {
   shapeName: string;
   vertices: Point[];       // normalized 0-1 for "up" orientation
   flipVertices: Point[];   // normalized 0-1 for "down" orientation (tessellation)
-  tessellated: boolean;    // true = hex tessellation packing
+  tessellated: boolean;    // true = tessellation packing
   itemType: "custom";
   /** For tessellated shapes: absolute positions of each individual shape */
   tessPositions?: TessPosition[];
@@ -97,13 +100,15 @@ export interface CustomCalculateResponse {
 
 // ── Preset Shapes ──────────────────────────────────────────────────────────
 // All vertices are in normalized coordinates (0,0) to (1,1)
-// tessellated: true means hex-like offset packing (each position = 1 sticker)
+// tessellated: true means tessellation packing (each position = 1 sticker)
+// tessStyle: "alternate-col" = ▲▼▲▼ within row; "hex-offset" = offset rows
 
-export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; flipVertices: Point[]; icon: string; tessellated: boolean }> = {
+export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; flipVertices: Point[]; icon: string; tessellated: boolean; tessStyle: TessStyle }> = {
   star: {
     label: "Star",
     icon: "★",
     tessellated: false,
+    tessStyle: "hex-offset",
     vertices: [
       { x: 0.5, y: 0 }, { x: 0.618, y: 0.382 }, { x: 1, y: 0.382 },
       { x: 0.691, y: 0.618 }, { x: 0.809, y: 1 }, { x: 0.5, y: 0.764 },
@@ -116,6 +121,7 @@ export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; f
     label: "Heart",
     icon: "♥",
     tessellated: false,
+    tessStyle: "hex-offset",
     vertices: [
       { x: 0.5, y: 0.9 }, { x: 0.1, y: 0.5 }, { x: 0, y: 0.3 },
       { x: 0.05, y: 0.1 }, { x: 0.2, y: 0 }, { x: 0.35, y: 0.05 },
@@ -127,7 +133,8 @@ export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; f
   diamond: {
     label: "Diamond",
     icon: "◆",
-    tessellated: true, // hex tessellation — offset rows
+    tessellated: true,
+    tessStyle: "hex-offset", // hex tessellation — offset rows
     vertices: [
       { x: 0.5, y: 0 }, { x: 1, y: 0.5 }, { x: 0.5, y: 1 }, { x: 0, y: 0.5 },
     ],
@@ -137,6 +144,7 @@ export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; f
     label: "Hexagon",
     icon: "⬡",
     tessellated: false,
+    tessStyle: "hex-offset",
     vertices: [
       { x: 0.25, y: 0 }, { x: 0.75, y: 0 }, { x: 1, y: 0.5 },
       { x: 0.75, y: 1 }, { x: 0.25, y: 1 }, { x: 0, y: 0.5 },
@@ -147,6 +155,7 @@ export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; f
     label: "Shield",
     icon: "🛡",
     tessellated: false,
+    tessStyle: "hex-offset",
     vertices: [
       { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 0.55 },
       { x: 0.5, y: 1 }, { x: 0, y: 0.55 },
@@ -157,6 +166,7 @@ export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; f
     label: "Arrow",
     icon: "▶",
     tessellated: false,
+    tessStyle: "hex-offset",
     vertices: [
       { x: 0, y: 0.3 }, { x: 0.6, y: 0.3 }, { x: 0.6, y: 0 },
       { x: 1, y: 0.5 }, { x: 0.6, y: 1 }, { x: 0.6, y: 0.7 },
@@ -168,6 +178,7 @@ export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; f
     label: "Cross",
     icon: "✚",
     tessellated: false,
+    tessStyle: "hex-offset",
     vertices: [
       { x: 0.35, y: 0 }, { x: 0.65, y: 0 }, { x: 0.65, y: 0.35 },
       { x: 1, y: 0.35 }, { x: 1, y: 0.65 }, { x: 0.65, y: 0.65 },
@@ -180,6 +191,7 @@ export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; f
     label: "Oval",
     icon: "⬭",
     tessellated: false,
+    tessStyle: "hex-offset",
     vertices: (() => {
       const pts: Point[] = [];
       const steps = 24;
@@ -197,7 +209,8 @@ export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; f
   triangle: {
     label: "Triangle",
     icon: "▲",
-    tessellated: true, // hex tessellation — ▲ even rows, ▼ odd rows
+    tessellated: true,
+    tessStyle: "alternate-col", // ▲▼▲▼ within each row — much tighter packing
     vertices: [
       // ▲ pointing up — fills FULL bounding box
       { x: 0.5, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 },
@@ -211,6 +224,7 @@ export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; f
     label: "Octagon",
     icon: "⯃",
     tessellated: false,
+    tessStyle: "hex-offset",
     vertices: [
       { x: 0.3, y: 0 }, { x: 0.7, y: 0 }, { x: 1, y: 0.3 },
       { x: 1, y: 0.7 }, { x: 0.7, y: 1 }, { x: 0.3, y: 1 },
@@ -222,9 +236,14 @@ export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; f
 
 // ── Tessellation Helpers ──────────────────────────────────────────────────
 
-/** Check if a shape name supports hex tessellation */
+/** Check if a shape name supports tessellation */
 export function isTessellated(shapeName: string): boolean {
   return PRESET_SHAPES[shapeName]?.tessellated ?? false;
+}
+
+/** Get tessellation style for a shape */
+export function getTessStyle(shapeName: string): TessStyle {
+  return PRESET_SHAPES[shapeName]?.tessStyle ?? "hex-offset";
 }
 
 /** Check if a shape needs flip vertices (triangle) vs no flip (diamond) */
@@ -234,21 +253,42 @@ function needsFlip(shapeName: string): boolean {
 }
 
 /**
- * Count shapes that fit on a sheet using hex-like tessellation packing.
- * Even rows: full column count. Odd rows: offset by half, one fewer.
- * Row height = cellH * sqrt(3) / 2 (hex factor).
+ * Count shapes that fit on a sheet using tessellation packing.
+ * Supports "alternate-col" (▲▼ within row, tighter step) and "hex-offset" styles.
  */
 export function tessCapacity(
   sheetW: number,
   sheetH: number,
   shapeW: number,
   shapeH: number,
-  bleedIn: number
+  bleedIn: number,
+  shapeName?: string
 ): number {
+  const style = shapeName ? getTessStyle(shapeName) : "hex-offset";
   const cellW = shapeW + 2 * bleedIn;
   const cellH = shapeH + 2 * bleedIn;
-  const rowHeight = cellH * Math.sqrt(3) / 2;
 
+  if (style === "alternate-col") {
+    // Alternate-col: ▲▼▲▼ within each row, tighter horizontal step
+    // Step = cellW/2 + bleedIn ensures 2*bleedIn gap between cut lines
+    const step = cellW / 2 + bleedIn;
+    let count = 0;
+    let y = bleedIn;
+
+    while (y + shapeH <= sheetH - bleedIn + 0.001) {
+      let x = bleedIn;
+      while (x + shapeW <= sheetW - bleedIn + 0.001) {
+        count++;
+        x += step;
+      }
+      y += cellH;
+    }
+
+    return count;
+  }
+
+  // Hex-offset: original hex-like offset rows
+  const rowHeight = cellH * Math.sqrt(3) / 2;
   let count = 0;
   let y = bleedIn;
   let row = 0;
@@ -271,9 +311,17 @@ export function tessCapacity(
 
 /**
  * Count shapes in a tessellation group of w columns × h rows.
- * Even rows: w shapes. Odd rows: w-1 shapes (offset by half).
+ * alternate-col: w × h (all rows same count)
+ * hex-offset: even rows w, odd rows w-1
  */
-export function tessGroupCount(w: number, h: number): number {
+export function tessGroupCount(w: number, h: number, shapeName?: string): number {
+  const style = shapeName ? getTessStyle(shapeName) : "hex-offset";
+
+  if (style === "alternate-col") {
+    return w * h;
+  }
+
+  // Hex-offset
   let count = 0;
   for (let row = 0; row < h; row++) {
     count += row % 2 === 1 ? Math.max(w - 1, 0) : w;
@@ -283,29 +331,42 @@ export function tessGroupCount(w: number, h: number): number {
 
 /**
  * Compute bounding-box dimensions for a tessellation group of w×h shapes.
+ * alternate-col: step = cellW/2 + bleedIn, rowHeight = cellH
+ * hex-offset: step = cellW, rowHeight = cellH * √3/2
  */
 export function tessGroupDimensions(
   w: number,
   h: number,
   shapeW: number,
   shapeH: number,
-  bleedIn: number
+  bleedIn: number,
+  shapeName?: string
 ): { width: number; height: number } {
+  const style = shapeName ? getTessStyle(shapeName) : "hex-offset";
   const cellW = shapeW + 2 * bleedIn;
   const cellH = shapeH + 2 * bleedIn;
+
+  if (style === "alternate-col") {
+    // Horizontal: first sticker at bleedIn, each additional at step, last sticker extends cellW
+    // Step between positions = cellW/2 + bleedIn (ensures proper bleed gap between cut lines)
+    const step = cellW / 2 + bleedIn;
+    const width = 2 * bleedIn + (w - 1) * step + shapeW;
+    // Vertical: same as grid, each row is cellH tall
+    const height = h * cellH + 2 * bleedIn;
+    return { width, height };
+  }
+
+  // Hex-offset (original)
   const rowHeight = cellH * Math.sqrt(3) / 2;
-
-  // Width: even rows span w * cellW, odd rows are offset but within same span
-  // Plus bleed margins on both sides
   const width = w * cellW + 2 * bleedIn;
-  // Height: first row full cellH, subsequent rows at rowHeight spacing, plus bleed
   const height = (h - 1) * rowHeight + cellH + 2 * bleedIn;
-
   return { width, height };
 }
 
 /**
  * Generate absolute positions for shapes in a tessellation group placed at (x0, y0).
+ * alternate-col: ▲▼▲▼ within each row, step = cellW/2 + bleedIn
+ * hex-offset: offset odd rows by cellW/2, rowHeight = cellH * √3/2
  */
 export function tessGroupPositions(
   w: number,
@@ -317,11 +378,33 @@ export function tessGroupPositions(
   y0: number,
   shapeName: string
 ): TessPosition[] {
+  const style = getTessStyle(shapeName);
   const cellW = shapeW + 2 * bleedIn;
   const cellH = shapeH + 2 * bleedIn;
-  const rowHeight = cellH * Math.sqrt(3) / 2;
   const useFlip = needsFlip(shapeName);
   const positions: TessPosition[] = [];
+
+  if (style === "alternate-col") {
+    // Alternate-col: ▲▼▲▼ within each row
+    // Step between positions = cellW/2 + bleedIn
+    const step = cellW / 2 + bleedIn;
+
+    for (let row = 0; row < h; row++) {
+      for (let col = 0; col < w; col++) {
+        const x = x0 + bleedIn + col * step;
+        const y = y0 + bleedIn + row * cellH;
+        // For shapes with flip (triangle): alternate orientation within row
+        // For shapes without flip (diamond): all same orientation
+        const flip = useFlip ? (col % 2 === 1) : false;
+        positions.push({ x, y, flip });
+      }
+    }
+
+    return positions;
+  }
+
+  // Hex-offset (original)
+  const rowHeight = cellH * Math.sqrt(3) / 2;
 
   for (let row = 0; row < h; row++) {
     const colsInRow = row % 2 === 1 ? Math.max(w - 1, 0) : w;
@@ -344,12 +427,32 @@ export function tessGroupPositions(
  * Enumerate valid tessellation group shapes for a given number of outs.
  * Returns shapes sorted by compactness (closest to square ratio).
  */
-export function getTessGroupShapes(outs: number): { w: number; h: number }[] {
+export function getTessGroupShapes(outs: number, shapeName?: string): { w: number; h: number }[] {
+  const style = shapeName ? getTessStyle(shapeName) : "hex-offset";
+
+  if (style === "alternate-col") {
+    // Same as grid: count = w * h
+    const shapes: { w: number; h: number }[] = [];
+    for (let w = 1; w <= outs; w++) {
+      if (outs % w === 0) {
+        shapes.push({ w, h: outs / w });
+      }
+    }
+    shapes.sort((a, b) => {
+      const ratioA = Math.max(a.w, a.h) / Math.min(a.w, a.h);
+      const ratioB = Math.max(b.w, b.h) / Math.min(b.w, b.h);
+      if (ratioA !== ratioB) return ratioA - ratioB;
+      return b.w - a.w;
+    });
+    return shapes;
+  }
+
+  // Hex-offset: count depends on odd rows having w-1
   const shapes: { w: number; h: number }[] = [];
 
   for (let h = 1; h <= outs + 2; h++) {
     for (let w = 1; w <= outs + 2; w++) {
-      const count = tessGroupCount(w, h);
+      const count = tessGroupCount(w, h, shapeName);
       if (count >= outs) {
         shapes.push({ w, h });
       }
@@ -358,8 +461,8 @@ export function getTessGroupShapes(outs: number): { w: number; h: number }[] {
   }
 
   shapes.sort((a, b) => {
-    const wastedA = tessGroupCount(a.w, a.h) - outs;
-    const wastedB = tessGroupCount(b.w, b.h) - outs;
+    const wastedA = tessGroupCount(a.w, a.h, shapeName) - outs;
+    const wastedB = tessGroupCount(b.w, b.h, shapeName) - outs;
     if (wastedA !== wastedB) return wastedA - wastedB;
     const ratioA = Math.max(a.w, a.h) / Math.min(a.w, a.h);
     const ratioB = Math.max(b.w, b.h) / Math.min(b.w, b.h);
@@ -443,7 +546,7 @@ function tryPackCustomGroups(
     )!;
     const preset = PRESET_SHAPES[group.shapeName] || PRESET_SHAPES.diamond;
 
-    // Generate tessellation positions if needed
+    // Generate tessellation positions
     const tessPositions = group.tessellated
       ? tessGroupPositions(
           pg.shape.w, pg.shape.h,
@@ -453,20 +556,6 @@ function tryPackCustomGroups(
           group.shapeName
         )
       : undefined;
-
-    // For tessellated shapes, we need to recalculate bleedIn for positions
-    // The group's bounding box already has bleed, so positions are relative to the group
-    let finalTessPositions = tessPositions;
-    if (group.tessellated && tessPositions) {
-      // Recalculate with proper bleed
-      finalTessPositions = tessGroupPositions(
-        pg.shape.w, pg.shape.h,
-        group.stickerWidth, group.stickerHeight,
-        0.197, // approximate bleedIn — will be recalculated properly in buildCustomPlateResult
-        pg.x, pg.y,
-        group.shapeName
-      );
-    }
 
     return {
       name: pg.name,
@@ -484,7 +573,7 @@ function tryPackCustomGroups(
       tessellated: group.tessellated,
       itemType: "custom" as const,
       shape: pg.shape,
-      tessPositions: finalTessPositions,
+      tessPositions,
     };
   });
 }
@@ -512,7 +601,7 @@ function findValidCustomPacking(
   // Get group shapes for each project based on its tessellation mode
   const allShapes = allocation.map((a) => {
     if (a.tessellated) {
-      return getTessGroupShapes(a.outs);
+      return getTessGroupShapes(a.outs, a.shapeName);
     } else {
       return getGridGroupShapes(a.outs);
     }
@@ -532,7 +621,7 @@ function findValidCustomPacking(
       const groupsWithDims: CustomGroupInfo[] = currentShapes.map((shape, i) => {
         const a = allocation[i];
         const dims = a.tessellated
-          ? tessGroupDimensions(shape.w, shape.h, a.stickerWidth, a.stickerHeight, bleedIn)
+          ? tessGroupDimensions(shape.w, shape.h, a.stickerWidth, a.stickerHeight, bleedIn, a.shapeName)
           : gridGroupDimensions(shape.w, shape.h, a.stickerWidth, a.stickerHeight, bleedIn);
         return {
           name: a.name,
@@ -557,7 +646,6 @@ function findValidCustomPacking(
         // Recalculate tessellation positions with correct bleedIn
         const correctedPlaced = placed.map((pg) => {
           if (pg.tessellated) {
-            const preset = PRESET_SHAPES[pg.shapeName] || PRESET_SHAPES.diamond;
             pg.tessPositions = tessGroupPositions(
               pg.shape.w, pg.shape.h,
               pg.stickerWidth, pg.stickerHeight,
@@ -577,7 +665,7 @@ function findValidCustomPacking(
     for (const shape of shapesToTry) {
       const a = allocation[idx];
       const dims = a.tessellated
-        ? tessGroupDimensions(shape.w, shape.h, a.stickerWidth, a.stickerHeight, bleedIn)
+        ? tessGroupDimensions(shape.w, shape.h, a.stickerWidth, a.stickerHeight, bleedIn, a.shapeName)
         : gridGroupDimensions(shape.w, shape.h, a.stickerWidth, a.stickerHeight, bleedIn);
       if (dims.width > sheetW || dims.height > sheetH) continue;
 
@@ -622,7 +710,7 @@ function findBestCustomAllocation(
   const perProjectMax = indices.map((i) => {
     const p = projects[i];
     if (isTessellated(p.shapeName)) {
-      return Math.max(tessCapacity(sheetW, sheetH, p.stickerWidth, p.stickerHeight, bleedIn), minOuts);
+      return Math.max(tessCapacity(sheetW, sheetH, p.stickerWidth, p.stickerHeight, bleedIn, p.shapeName), minOuts);
     } else {
       const cellW = p.stickerWidth + 2 * bleedIn;
       const cellH = p.stickerHeight + 2 * bleedIn;
@@ -946,8 +1034,11 @@ export function calculateCustom(req: {
   const minH = Math.min(...projects.map((p) => p.stickerHeight));
   const hasTess = projects.some((p) => isTessellated(p.shapeName));
 
+  // Use the first tessellated shape's name for capacity estimate, or fall back
+  const tessShapeName = projects.find((p) => isTessellated(p.shapeName))?.shapeName;
+
   const maxPerSheet = hasTess
-    ? tessCapacity(sheetWidth, sheetHeight, minW, minH, bleedIn)
+    ? tessCapacity(sheetWidth, sheetHeight, minW, minH, bleedIn, tessShapeName)
     : Math.floor(sheetWidth / (minW + 2 * bleedIn)) * Math.floor(sheetHeight / (minH + 2 * bleedIn));
 
   const maxSlots = Math.max(maxPerSheet, projects.length * 2);
