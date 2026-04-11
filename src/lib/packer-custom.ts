@@ -63,6 +63,7 @@ export interface CustomAllocationEntry {
   produced: number;
   overage: number;
   overagePct: number;
+  groupShape: { w: number; h: number };
   stickerWidth: number;
   stickerHeight: number;
   shapeName: string;
@@ -91,10 +92,18 @@ export interface CustomTwoPlateResult {
   plate2ProjectIndices: number[];
 }
 
+export interface PlateSuggestion {
+  plateCount: number;
+  feasible: boolean;
+  totalSheets: number;
+  description: string;
+}
+
 export interface CustomCalculateResponse {
   capacity: { maxPerSheet: number; sheetWidth: number; sheetHeight: number };
   singlePlateResult: CustomPlateResult | null;
   twoPlateResult: CustomTwoPlateResult | null;
+  plateSuggestions: PlateSuggestion[];
   error?: string;
 }
 
@@ -594,7 +603,8 @@ function findValidCustomPacking(
   allocation: CustomAllocItem[],
   sheetW: number,
   sheetH: number,
-  bleedIn: number
+  bleedIn: number,
+  deadline?: number
 ): { shapes: { w: number; h: number }[]; placedGroups: PlacedCustomGroup[] } | null {
   const n = allocation.length;
 
@@ -608,15 +618,25 @@ function findValidCustomPacking(
   });
 
   let attempts = 0;
-  const maxAttempts = 500;
+  const maxAttempts = 200;
+  let stackDepth = 0;
+  const maxStackDepth = 50;
 
   function tryCombo(
     idx: number,
     currentShapes: { w: number; h: number }[]
   ): { shapes: { w: number; h: number }[]; placedGroups: PlacedCustomGroup[] } | null {
+    stackDepth++;
+    if (stackDepth > maxStackDepth || attempts > maxAttempts || (deadline && Date.now() > deadline)) {
+      stackDepth--;
+      return null;
+    }
     if (idx === n) {
       attempts++;
-      if (attempts > maxAttempts) return null;
+      if (attempts > maxAttempts || (deadline && Date.now() > deadline)) {
+        stackDepth--;
+        return null;
+      }
 
       const groupsWithDims: CustomGroupInfo[] = currentShapes.map((shape, i) => {
         const a = allocation[i];
@@ -671,11 +691,18 @@ function findValidCustomPacking(
 
       currentShapes.push(shape);
       const result = tryCombo(idx + 1, currentShapes);
-      if (result) return result;
+      if (result) {
+        stackDepth--;
+        return result;
+      }
       currentShapes.pop();
 
-      if (attempts > maxAttempts) return null;
+      if (attempts > maxAttempts || (deadline && Date.now() > deadline)) {
+        stackDepth--;
+        return null;
+      }
     }
+    stackDepth--;
     return null;
   }
 
@@ -697,7 +724,8 @@ function findBestCustomAllocation(
   sheetW: number,
   sheetH: number,
   bleedIn: number,
-  maxSlots: number
+  maxSlots: number,
+  deadline?: number
 ): CustomAllocationWithPacking | null {
   const n = indices.length;
   if (n === 0) return null;
@@ -748,13 +776,20 @@ function findBestCustomAllocation(
 
   let bestL = Infinity;
   let bestResult: CustomAllocationWithPacking | null = null;
+  let searchIterations = 0;
+  const maxSearchIterations = 10000;
 
   for (const totalOuts of totalsToTry) {
     if (totalOuts < minTotal || totalOuts > maxSlots) continue;
+    if (bestL <= 1) break; // Early exit: can't beat run length of 1
+    if (deadline && Date.now() > deadline) break; // Time-based cutoff
 
     const current = new Array(n).fill(0);
 
     function search(idx: number, remaining: number): void {
+      if (searchIterations > maxSearchIterations || (deadline && Date.now() > deadline)) return;
+      searchIterations++;
+
       if (idx === n - 1) {
         current[idx] = remaining;
         if (remaining < minOuts) return;
@@ -776,7 +811,7 @@ function findBestCustomAllocation(
           tessellated: isTessellated(projects[indices[i]].shapeName),
         }));
 
-        const packing = findValidCustomPacking(allocInfo, sheetW, sheetH, bleedIn);
+        const packing = findValidCustomPacking(allocInfo, sheetW, sheetH, bleedIn, deadline);
 
         if (packing) {
           bestL = L;
@@ -793,6 +828,7 @@ function findBestCustomAllocation(
       const minRemaining = (n - idx - 1) * minOuts;
       const maxVal = Math.min(remaining - minRemaining, perProjectMax[idx]);
       for (let val = minOuts; val <= maxVal; val++) {
+        if (searchIterations > maxSearchIterations || (deadline && Date.now() > deadline)) break;
         current[idx] = val;
         let partialL = 0;
         for (let i = 0; i <= idx; i++) {
@@ -838,6 +874,7 @@ function buildCustomPlateResult(
       produced,
       overage,
       overagePct,
+      groupShape: shapes[i],
       stickerWidth: projects[projIdx].stickerWidth,
       stickerHeight: projects[projIdx].stickerHeight,
       shapeName: projects[projIdx].shapeName,
@@ -914,17 +951,22 @@ function findBestCustomTwoPlate(
   maxSlots: number,
   sheetW: number,
   sheetH: number,
-  bleedIn: number
+  bleedIn: number,
+  deadline?: number
 ): CustomTwoPlateResult | null {
   const n = projects.length;
   if (n < 2) return null;
 
   let bestTotal = Infinity;
   let bestResult: CustomTwoPlateResult | null = null;
+  let partitionAttempts = 0;
+  const maxPartitionAttempts = 64; // Limit partition evaluations
 
   const totalMasks = 1 << n;
   for (let mask = 1; mask < totalMasks - 1; mask++) {
     if (!(mask & 1)) continue;
+    partitionAttempts++;
+    if (partitionAttempts > maxPartitionAttempts) break;
 
     const p1Indices: number[] = [];
     const p2Indices: number[] = [];
@@ -989,6 +1031,87 @@ function findBestCustomTwoPlate(
 
 // ── Full Calculation ───────────────────────────────────────────────────────
 
+/** Check if a single project can even fit on the sheet (minimum 2 outs) */
+function canProjectFit(
+  p: CustomProject,
+  sheetW: number,
+  sheetH: number,
+  bleedIn: number
+): boolean {
+  if (isTessellated(p.shapeName)) {
+    return tessCapacity(sheetW, sheetH, p.stickerWidth, p.stickerHeight, bleedIn, p.shapeName) >= 2;
+  } else {
+    const cellW = p.stickerWidth + 2 * bleedIn;
+    const cellH = p.stickerHeight + 2 * bleedIn;
+    return Math.floor(sheetW / cellW) * Math.floor(sheetH / cellH) >= 2;
+  }
+}
+
+/** Try packing with k plates using greedy assignment (for 3+ plates) */
+function tryKPlatePacking(
+  projects: CustomProject[],
+  k: number,
+  maxSlots: number,
+  sheetW: number,
+  sheetH: number,
+  bleedIn: number
+): { feasible: boolean; totalSheets: number } {
+  if (k > projects.length) {
+    // More plates than projects — each project gets its own plate
+    let totalSheets = 0;
+    for (const p of projects) {
+      const result = findBestCustomAllocation([p], [0], sheetW, sheetH, bleedIn, maxSlots);
+      if (result) {
+        totalSheets += result.runLength;
+      } else {
+        return { feasible: false, totalSheets: 0 };
+      }
+    }
+    return { feasible: totalSheets > 0, totalSheets };
+  }
+
+  // Greedy approach: sort projects by "size" (area * quantity) descending,
+  // assign each to the plate with the fewest total sheets so far
+  const sortedIndices = projects
+    .map((p, i) => ({ i, size: p.stickerWidth * p.stickerHeight * p.quantity }))
+    .sort((a, b) => b.size - a.size)
+    .map((x) => x.i);
+
+  // Initialize k plates
+  const plates: number[][] = Array.from({ length: k }, () => []);
+  const plateSheets: number[] = new Array(k).fill(0);
+
+  for (const projIdx of sortedIndices) {
+    // Try adding to each plate, pick the one that increases total sheets the least
+    let bestPlate = -1;
+    let bestNewTotal = Infinity;
+
+    for (let pi = 0; pi < k; pi++) {
+      const testIndices = [...plates[pi], projIdx];
+      const result = findBestCustomAllocation(projects, testIndices, sheetW, sheetH, bleedIn, maxSlots);
+      if (result) {
+        const otherSheets = plateSheets.reduce((sum, s, idx) => idx === pi ? 0 : sum + s, 0);
+        const newTotal = otherSheets + result.runLength;
+        if (newTotal < bestNewTotal) {
+          bestNewTotal = newTotal;
+          bestPlate = pi;
+        }
+      }
+    }
+
+    if (bestPlate === -1) {
+      return { feasible: false, totalSheets: 0 };
+    }
+
+    plates[bestPlate].push(projIdx);
+    const result = findBestCustomAllocation(projects, plates[bestPlate], sheetW, sheetH, bleedIn, maxSlots);
+    plateSheets[bestPlate] = result ? result.runLength : Infinity;
+  }
+
+  const totalSheets = plateSheets.reduce((s, v) => s + v, 0);
+  return { feasible: totalSheets > 0 && totalSheets < Infinity, totalSheets };
+}
+
 export function calculateCustom(req: {
   sheetWidth: number;
   sheetHeight: number;
@@ -997,11 +1120,14 @@ export function calculateCustom(req: {
 }): CustomCalculateResponse {
   const { sheetWidth, sheetHeight, bleed, projects: rawProjects } = req;
 
+  const emptySuggestions: PlateSuggestion[] = [];
+
   if (!sheetWidth || !sheetHeight || bleed == null) {
     return {
       capacity: { maxPerSheet: 0, sheetWidth, sheetHeight },
       singlePlateResult: null,
       twoPlateResult: null,
+      plateSuggestions: emptySuggestions,
       error: "Missing required dimension parameters.",
     };
   }
@@ -1014,6 +1140,7 @@ export function calculateCustom(req: {
       capacity: { maxPerSheet: 0, sheetWidth, sheetHeight },
       singlePlateResult: null,
       twoPlateResult: null,
+      plateSuggestions: emptySuggestions,
       error: "No projects with positive quantities and valid sticker sizes.",
     };
   }
@@ -1029,6 +1156,32 @@ export function calculateCustom(req: {
 
   const bleedIn = bleed / 25.4;
 
+  // ── Early bail-out: check if each project can fit on the sheet ──
+  const tooLargeProjects: string[] = [];
+  for (const p of projects) {
+    if (!canProjectFit(p, sheetWidth, sheetHeight, bleedIn)) {
+      tooLargeProjects.push(
+        `"${p.name}" (${p.shapeName} ${p.stickerWidth}"×${p.stickerHeight}")`
+      );
+    }
+  }
+
+  if (tooLargeProjects.length > 0) {
+    const suggestions: PlateSuggestion[] = [
+      { plateCount: 1, feasible: false, totalSheets: 0, description: "Cannot fit" },
+      { plateCount: 2, feasible: false, totalSheets: 0, description: "Cannot fit" },
+      { plateCount: 3, feasible: false, totalSheets: 0, description: "Cannot fit" },
+      { plateCount: 4, feasible: false, totalSheets: 0, description: "Cannot fit" },
+    ];
+    return {
+      capacity: { maxPerSheet: 0, sheetWidth, sheetHeight },
+      singlePlateResult: null,
+      twoPlateResult: null,
+      plateSuggestions: suggestions,
+      error: `Projects too large for sheet: ${tooLargeProjects.join(", ")}. Try increasing sheet size or reducing sticker dimensions.`,
+    };
+  }
+
   // Capacity and max slots
   const minW = Math.min(...projects.map((p) => p.stickerWidth));
   const minH = Math.min(...projects.map((p) => p.stickerHeight));
@@ -1042,6 +1195,9 @@ export function calculateCustom(req: {
     : Math.floor(sheetWidth / (minW + 2 * bleedIn)) * Math.floor(sheetHeight / (minH + 2 * bleedIn));
 
   const maxSlots = Math.max(maxPerSheet, projects.length * 2);
+
+  // ── Build plate suggestions progressively ──
+  const plateSuggestions: PlateSuggestion[] = [];
 
   // Single plate
   let singlePlateResult: CustomPlateResult | null = null;
@@ -1058,7 +1214,27 @@ export function calculateCustom(req: {
         sheetWidth, sheetHeight, bleedIn,
         result.placedGroups
       );
+      plateSuggestions.push({
+        plateCount: 1,
+        feasible: true,
+        totalSheets: singlePlateResult.totalSheets,
+        description: `${singlePlateResult.totalSheets.toLocaleString()} sheets, ${singlePlateResult.runLength.toLocaleString()} run length`,
+      });
+    } else {
+      plateSuggestions.push({
+        plateCount: 1,
+        feasible: false,
+        totalSheets: 0,
+        description: "Cannot fit all projects on one plate",
+      });
     }
+  } else {
+    plateSuggestions.push({
+      plateCount: 1,
+      feasible: false,
+      totalSheets: 0,
+      description: "Too many projects for single plate",
+    });
   }
 
   // Two plate
@@ -1067,13 +1243,59 @@ export function calculateCustom(req: {
     twoPlateResult = findBestCustomTwoPlate(projects, maxSlots, sheetWidth, sheetHeight, bleedIn);
   }
 
-  if (twoPlateResult && singlePlateResult) {
-    twoPlateResult.sheetsSaved = singlePlateResult.totalSheets - twoPlateResult.totalSheets;
+  if (twoPlateResult) {
+    if (singlePlateResult) {
+      twoPlateResult.sheetsSaved = singlePlateResult.totalSheets - twoPlateResult.totalSheets;
+    }
+    plateSuggestions.push({
+      plateCount: 2,
+      feasible: true,
+      totalSheets: twoPlateResult.totalSheets,
+      description: `${twoPlateResult.totalSheets.toLocaleString()} sheets (P1: ${twoPlateResult.plate1.runLength}, P2: ${twoPlateResult.plate2.runLength})${twoPlateResult.sheetsSaved > 0 ? `, saves ${twoPlateResult.sheetsSaved} sheets` : ""}`,
+    });
+  } else {
+    plateSuggestions.push({
+      plateCount: 2,
+      feasible: false,
+      totalSheets: 0,
+      description: "Cannot split into 2 plates",
+    });
+  }
+
+  // 3 plates — greedy approach
+  const k3 = tryKPlatePacking(projects, 3, maxSlots, sheetWidth, sheetHeight, bleedIn);
+  plateSuggestions.push({
+    plateCount: 3,
+    feasible: k3.feasible,
+    totalSheets: k3.totalSheets,
+    description: k3.feasible ? `${k3.totalSheets.toLocaleString()} sheets across 3 plates` : "Cannot split into 3 plates",
+  });
+
+  // 4 plates — greedy approach
+  const k4 = tryKPlatePacking(projects, 4, maxSlots, sheetWidth, sheetHeight, bleedIn);
+  plateSuggestions.push({
+    plateCount: 4,
+    feasible: k4.feasible,
+    totalSheets: k4.totalSheets,
+    description: k4.feasible ? `${k4.totalSheets.toLocaleString()} sheets across 4 plates` : "Cannot split into 4 plates",
+  });
+
+  // Check if nothing works at all
+  const anyFeasible = plateSuggestions.some((s) => s.feasible);
+  if (!anyFeasible) {
+    return {
+      capacity: { maxPerSheet, sheetWidth, sheetHeight },
+      singlePlateResult: null,
+      twoPlateResult: null,
+      plateSuggestions,
+      error: "Projects too large for sheet. Try increasing sheet size or reducing sticker dimensions.",
+    };
   }
 
   return {
     capacity: { maxPerSheet, sheetWidth, sheetHeight },
     singlePlateResult,
     twoPlateResult,
+    plateSuggestions,
   };
 }

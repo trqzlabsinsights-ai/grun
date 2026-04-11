@@ -53,3 +53,23 @@ Work Log:
 Stage Summary:
 - Minor text updates to reflect new tessellation mode
 - Files modified: `src/app/page.tsx`
+---
+Task ID: 1
+Agent: main
+Task: Fix triangle crash, add plate suggestions, error modal improvements
+
+Work Log:
+- Diagnosed the crash: `Cannot read properties of undefined (reading 'w')` at line 763 where `entry.groupShape` is undefined for custom shapes
+- Root cause: `CustomAllocationEntry` in packer-custom.ts was missing `groupShape` field, unlike all other packers (rect-same, rect-mixed, circular)
+- Fixed packer-custom.ts: Added `groupShape: { w: number; h: number }` to `CustomAllocationEntry` interface and populated it with `shapes[i]` in `buildCustomPlateResult`
+- Added defensive null check in AllocationTable: `gs ? `${gs.w}×${gs.h}` : "—"` instead of `gs.w`
+- Added plate suggestions card to results view (success state), not just error modal
+- Added `buildPlateSuggestions()` function to API route for rect-same, rect-mixed, circular modes (custom mode already had it)
+- Improved browser extension hydration warning suppression by adding more attribute filters (bis_register, bis_use, data-bis-config, data-dynamic-id)
+- Verified lint passes and custom packer returns groupShape correctly
+
+Stage Summary:
+- Triangle/custom shape crash is fixed - groupShape now properly included in CustomAllocationEntry
+- Plate suggestions now shown in results view for ALL modes (1, 2, 3, 4+ plates)
+- Error modal already existed and works correctly
+- Hydration warnings from browser extensions better suppressed

@@ -45,7 +45,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){var o=new MutationObserver(function(m){m.forEach(function(m){if(m.type==='attributes'&&m.attributeName==='bis_skin_checked'){m.target.removeAttribute('bis_skin_checked')}})});o.observe(document.documentElement,{attributes:true,subtree:true,attributeFilter:['bis_skin_checked']})})();`,
+            __html: `(function(){var r=['bis_skin_checked','bis_register','bis_use','data-bis-config','data-dynamic-id'];var o=new MutationObserver(function(m){m.forEach(function(m){if(m.type==='attributes'){r.forEach(function(a){if(m.attributeName===a){m.target.removeAttribute(a)}})}})});o.observe(document.documentElement,{attributes:true,subtree:true,attributeFilter:r});document.querySelectorAll('['+r.join('],[')+']').forEach(function(e){r.forEach(function(a){e.removeAttribute(a)})})})();`,
           }}
         />
       </head>

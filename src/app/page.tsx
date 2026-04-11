@@ -34,6 +34,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   BarChart,
   Bar,
   XAxis,
@@ -159,12 +167,20 @@ interface TwoPlateResult {
   plate2ProjectIndices: number[];
 }
 
+interface PlateSuggestion {
+  plateCount: number;
+  feasible: boolean;
+  totalSheets: number;
+  description: string;
+}
+
 interface CalculateResponse {
   mode?: PackMode;
   capacity: Record<string, unknown> | null;
   maxSlots?: number;
   singlePlateResult: PlateResult | null;
   twoPlateResult: TwoPlateResult | null;
+  plateSuggestions?: PlateSuggestion[];
   error?: string;
 }
 
@@ -744,7 +760,7 @@ function AllocationTable({ allocation, projectColors, projectNames, packMode }: 
                 )}
                 <TableCell className="text-right text-slate-300">{entry.quantity.toLocaleString()}</TableCell>
                 <TableCell className="text-right text-cyan-400 font-semibold">{entry.outs}</TableCell>
-                <TableCell className="text-right text-slate-400 font-mono text-xs">{gs.w}&times;{gs.h}</TableCell>
+                <TableCell className="text-right text-slate-400 font-mono text-xs">{gs ? `${gs.w}\u00d7${gs.h}` : "\u2014"}</TableCell>
                 <TableCell className="text-right text-slate-300">{entry.produced.toLocaleString()}</TableCell>
                 <TableCell className="text-right">
                   <span className={entry.overage > 0 ? "text-amber-400" : "text-slate-400"}>
@@ -786,6 +802,8 @@ export default function GangRunCalculator() {
   const [result, setResult] = useState<CalculateResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorModalOpen, setErrorModalOpen] = useState(false);
+  const [plateSuggestions, setPlateSuggestions] = useState<PlateSuggestion[]>([]);
   const [activeTab, setActiveTab] = useState("two");
 
   // ── Mode-specific project helpers ──────────────────────────────────────
@@ -895,6 +913,7 @@ export default function GangRunCalculator() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setPlateSuggestions([]);
     try {
       let body: Record<string, unknown> = { mode: packMode, sheetWidth, sheetHeight, bleed };
 
@@ -923,12 +942,16 @@ export default function GangRunCalculator() {
       const data: CalculateResponse = await response.json();
       if (data.error) {
         setError(data.error);
+        setPlateSuggestions(data.plateSuggestions || []);
+        setErrorModalOpen(true);
       } else {
         setResult(data);
+        setPlateSuggestions(data.plateSuggestions || []);
         setInputOpen(false);
       }
     } catch {
       setError("Failed to connect to calculation server.");
+      setErrorModalOpen(true);
     } finally {
       setLoading(false);
     }
@@ -992,7 +1015,7 @@ export default function GangRunCalculator() {
                 return (
                   <button
                     key={mode}
-                    onClick={() => { setPackMode(mode); setResult(null); setError(null); }}
+                    onClick={() => { setPackMode(mode); setResult(null); setError(null); setPlateSuggestions([]); }}
                     className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all ${
                       isActive
                         ? "bg-cyan-600/20 border-cyan-500/50 text-cyan-300 shadow-lg shadow-cyan-500/10"
@@ -1241,17 +1264,58 @@ export default function GangRunCalculator() {
           </Card>
         </Collapsible>
 
-        {/* Error */}
-        {error && (
-          <Card className="bg-red-950/50 border-red-800/50">
-            <CardContent className="py-4">
-              <div className="flex items-center gap-2 text-red-400">
+        {/* Error Modal */}
+        <Dialog open={errorModalOpen} onOpenChange={(open) => { setErrorModalOpen(open); if (!open) { setError(null); setPlateSuggestions([]); } }}>
+          <DialogContent className="bg-slate-900 border-red-800/50 sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-400">
                 <AlertTriangle className="w-5 h-5" />
-                <span>{error}</span>
+                Calculation Error
+              </DialogTitle>
+              <DialogDescription className="text-slate-300 pt-2">
+                {error}
+              </DialogDescription>
+            </DialogHeader>
+            {plateSuggestions.length > 0 && (
+              <div className="mt-2 space-y-2">
+                <p className="text-sm font-medium text-slate-300">Plate Suggestions:</p>
+                <div className="space-y-1.5">
+                  {plateSuggestions.map((s) => (
+                    <div
+                      key={s.plateCount}
+                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${
+                        s.feasible
+                          ? "bg-emerald-950/40 border border-emerald-800/40"
+                          : "bg-slate-800/50 border border-slate-700/30"
+                      }`}
+                    >
+                      <span className={`font-bold ${s.feasible ? "text-emerald-400" : "text-slate-500"}`}>
+                        {s.plateCount} {s.plateCount === 1 ? "plate" : "plates"}
+                      </span>
+                      <span className={s.feasible ? "text-emerald-300" : "text-slate-500"}>
+                        {s.description}
+                      </span>
+                      {s.feasible && (
+                        <span className="ml-auto text-xs text-emerald-500">
+                          {s.totalSheets.toLocaleString()} sheets
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => { setErrorModalOpen(false); setError(null); setPlateSuggestions([]); }}
+                className="border-slate-700 text-slate-300 hover:bg-slate-800"
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Results */}
         {result && (
@@ -1273,6 +1337,45 @@ export default function GangRunCalculator() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Plate Suggestions */}
+            {plateSuggestions.length > 0 && (
+              <Card className="bg-slate-900 border-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-slate-100 flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-amber-400" />
+                    Plate Suggestions
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {plateSuggestions.map((s) => (
+                      <div
+                        key={s.plateCount}
+                        className={`rounded-lg px-4 py-3 text-center border ${
+                          s.feasible
+                            ? "bg-emerald-950/30 border-emerald-800/40"
+                            : "bg-slate-800/30 border-slate-700/30"
+                        }`}
+                      >
+                        <div className={`text-2xl font-bold ${s.feasible ? "text-emerald-400" : "text-slate-600"}`}>
+                          {s.plateCount}
+                        </div>
+                        <div className={`text-xs ${s.feasible ? "text-emerald-300" : "text-slate-500"}`}>
+                          {s.plateCount === 1 ? "plate" : "plates"}
+                        </div>
+                        <div className={`text-xs mt-1 ${s.feasible ? "text-emerald-400" : "text-slate-500"}`}>
+                          {s.feasible ? `${s.totalSheets.toLocaleString()} sheets` : "Cannot fit"}
+                        </div>
+                        {s.feasible && s.description && (
+                          <div className="text-[10px] text-slate-500 mt-1">{s.description}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Results Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
