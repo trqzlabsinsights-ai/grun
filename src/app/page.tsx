@@ -68,12 +68,44 @@ import {
   CircleIcon,
   Hexagon,
   Shapes,
+
 } from "lucide-react";
 import { PRESET_SHAPES } from "@/lib/packer-custom";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type PackMode = "rect-same" | "rect-mixed" | "circular" | "custom";
+
+type IndustryKey = "sticker-printing" | "offset-printing" | "cnc-cutting" | "textile-cutting" | "pallet-loading" | "glass-cutting" | "vlsi-pcb";
+
+interface IndustryPreset {
+  key: IndustryKey;
+  label: string;
+  icon: string;
+  description: string;
+  headerTitle: string;
+  headerSubtitle: string;
+  terms: {
+    sheet: string;
+    sticker: string;
+    plate: string;
+    bleed: string;
+    outs: string;
+    grainDirection: string;
+    overage: string;
+  };
+  defaults: {
+    sheetWidth: number;
+    sheetHeight: number;
+    bleed: number;
+  };
+  modeDescriptions: {
+    "rect-same": string;
+    "rect-mixed": string;
+    "circular": string;
+    "custom": string;
+  };
+}
 
 interface ProjectInput {
   name: string;
@@ -184,6 +216,10 @@ interface CalculateResponse {
   error?: string;
 }
 
+// ── Industry Terms Helper ──────────────────────────────────────────────────
+
+type IndustryTerms = IndustryPreset["terms"];
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const PROJECT_COLORS = [
@@ -236,8 +272,188 @@ const MODE_CONFIG: Record<PackMode, { label: string; icon: React.ReactNode; desc
   "rect-same": { label: "Same Rect", icon: <Square className="w-4 h-4" />, desc: "All stickers same W\u00d7H" },
   "rect-mixed": { label: "Mixed Rect", icon: <LayoutGrid className="w-4 h-4" />, desc: "Each project has own W\u00d7H" },
   "circular": { label: "Circular", icon: <CircleIcon className="w-4 h-4" />, desc: "Circle stickers by diameter" },
-  "custom": { label: "Custom Shape", icon: <Hexagon className="w-4 h-4" />, desc: "▲▼ tessellated polygons" },
+  "custom": { label: "Custom Shape", icon: <Hexagon className="w-4 h-4" />, desc: "\u25B2\u25BC tessellated polygons" },
 };
+
+// ── Industry Presets ───────────────────────────────────────────────────────
+
+const INDUSTRY_PRESETS: Record<IndustryKey, IndustryPreset> = {
+  "sticker-printing": {
+    key: "sticker-printing",
+    label: "Sticker Printing",
+    icon: "🏷️",
+    description: "Traditional sticker/printing gang run optimization",
+    headerTitle: "Gang Run Calculator",
+    headerSubtitle: "Multi-mode sticker optimization with MaxRect 2D packing",
+    terms: {
+      sheet: "sheet",
+      sticker: "sticker",
+      plate: "plate",
+      bleed: "bleed",
+      outs: "outs",
+      grainDirection: "GRAIN DIRECTION",
+      overage: "overage",
+    },
+    defaults: { sheetWidth: 24, sheetHeight: 16.5, bleed: 5 },
+    modeDescriptions: {
+      "rect-same": "All stickers same size, per-project quantities only",
+      "rect-mixed": "Sheet size, bleed, and project quantities with per-project sticker dimensions",
+      "circular": "Circle stickers with per-project diameter and hexagonal packing",
+      "custom": "Preset polygon shapes with ▲▼ tessellation for triangles & hex-offset for diamonds",
+    },
+  },
+  "offset-printing": {
+    key: "offset-printing",
+    label: "Offset Printing",
+    icon: "🖨️",
+    description: "Press sheet layout for offset printing jobs",
+    headerTitle: "Press Sheet Optimizer",
+    headerSubtitle: "Multi-mode card/panel layout with MaxRect 2D packing",
+    terms: {
+      sheet: "press sheet",
+      sticker: "card/panel",
+      plate: "plate",
+      bleed: "grip/trim",
+      outs: "up",
+      grainDirection: "GRAIN DIRECTION",
+      overage: "overrun",
+    },
+    defaults: { sheetWidth: 25, sheetHeight: 19, bleed: 5 },
+    modeDescriptions: {
+      "rect-same": "All cards same size, per-project quantities only",
+      "rect-mixed": "Press sheet size, grip/trim, and project quantities with per-project card dimensions",
+      "circular": "Circular pieces with per-project diameter and hexagonal packing",
+      "custom": "Preset polygon shapes with ▲▼ tessellation for triangles & hex-offset for diamonds",
+    },
+  },
+  "cnc-cutting": {
+    key: "cnc-cutting",
+    label: "CNC / Material Cutting",
+    icon: "⚙️",
+    description: "Material stock layout for CNC cutting optimization",
+    headerTitle: "CNC Cutting Optimizer",
+    headerSubtitle: "Material nesting with MaxRect 2D packing",
+    terms: {
+      sheet: "stock/material",
+      sticker: "part/piece",
+      plate: "layout",
+      bleed: "kerf allowance",
+      outs: "per sheet",
+      grainDirection: "GRAIN DIRECTION",
+      overage: "waste",
+    },
+    defaults: { sheetWidth: 48, sheetHeight: 96, bleed: 3 },
+    modeDescriptions: {
+      "rect-same": "All parts same size, per-project quantities only",
+      "rect-mixed": "Stock size, kerf allowance, and project quantities with per-project part dimensions",
+      "circular": "Circular parts with per-project diameter and hexagonal packing",
+      "custom": "Preset polygon shapes with ▲▼ tessellation for triangles & hex-offset for diamonds",
+    },
+  },
+  "textile-cutting": {
+    key: "textile-cutting",
+    label: "Textile / Fabric Cutting",
+    icon: "✂️",
+    description: "Fabric roll/marker layout for pattern cutting",
+    headerTitle: "Fabric Cutting Optimizer",
+    headerSubtitle: "Pattern nesting with MaxRect 2D packing",
+    terms: {
+      sheet: "fabric roll/yard",
+      sticker: "pattern piece",
+      plate: "marker",
+      bleed: "seam allowance",
+      outs: "per marker",
+      grainDirection: "WARP DIRECTION",
+      overage: "waste",
+    },
+    defaults: { sheetWidth: 45, sheetHeight: 36, bleed: 6 },
+    modeDescriptions: {
+      "rect-same": "All pattern pieces same size, per-project quantities only",
+      "rect-mixed": "Fabric roll size, seam allowance, and project quantities with per-project piece dimensions",
+      "circular": "Circular pattern pieces with per-project diameter and hexagonal packing",
+      "custom": "Preset polygon shapes with ▲▼ tessellation for triangles & hex-offset for diamonds",
+    },
+  },
+  "pallet-loading": {
+    key: "pallet-loading",
+    label: "Pallet Loading",
+    icon: "📦",
+    description: "Pallet layout optimization for box/carton loading",
+    headerTitle: "Pallet Loading Optimizer",
+    headerSubtitle: "Box/carton arrangement with MaxRect 2D packing",
+    terms: {
+      sheet: "pallet",
+      sticker: "box/carton",
+      plate: "load plan",
+      bleed: "—",
+      outs: "per pallet",
+      grainDirection: "—",
+      overage: "unused",
+    },
+    defaults: { sheetWidth: 48, sheetHeight: 40, bleed: 0 },
+    modeDescriptions: {
+      "rect-same": "All boxes same size, per-project quantities only",
+      "rect-mixed": "Pallet size and project quantities with per-project box dimensions",
+      "circular": "Circular items with per-project diameter and hexagonal packing",
+      "custom": "Preset polygon shapes with ▲▼ tessellation for triangles & hex-offset for diamonds",
+    },
+  },
+  "glass-cutting": {
+    key: "glass-cutting",
+    label: "Glass / Sheet Cutting",
+    icon: "🪟",
+    description: "Glass sheet layout for pane/panel cutting",
+    headerTitle: "Glass Cutting Optimizer",
+    headerSubtitle: "Glass nesting with MaxRect 2D packing",
+    terms: {
+      sheet: "glass sheet",
+      sticker: "pane/panel",
+      plate: "layout",
+      bleed: "edge clearance",
+      outs: "per sheet",
+      grainDirection: "—",
+      overage: "waste",
+    },
+    defaults: { sheetWidth: 96, sheetHeight: 60, bleed: 3 },
+    modeDescriptions: {
+      "rect-same": "All panes same size, per-project quantities only",
+      "rect-mixed": "Glass sheet size, edge clearance, and project quantities with per-project pane dimensions",
+      "circular": "Circular panes with per-project diameter and hexagonal packing",
+      "custom": "Preset polygon shapes with ▲▼ tessellation for triangles & hex-offset for diamonds",
+    },
+  },
+  "vlsi-pcb": {
+    key: "vlsi-pcb",
+    label: "VLSI / PCB Layout",
+    icon: "🔌",
+    description: "Board/die layout for component/block placement",
+    headerTitle: "VLSI / PCB Layout Optimizer",
+    headerSubtitle: "Component placement with MaxRect 2D packing",
+    terms: {
+      sheet: "board/die",
+      sticker: "component/block",
+      plate: "board",
+      bleed: "spacing",
+      outs: "per board",
+      grainDirection: "—",
+      overage: "unused",
+    },
+    defaults: { sheetWidth: 12, sheetHeight: 12, bleed: 1 },
+    modeDescriptions: {
+      "rect-same": "All components same size, per-project quantities only",
+      "rect-mixed": "Board size, spacing, and project quantities with per-project component dimensions",
+      "circular": "Circular components with per-project diameter and hexagonal packing",
+      "custom": "Preset polygon shapes with ▲▼ tessellation for triangles & hex-offset for diamonds",
+    },
+  },
+};
+
+// ── Helper ─────────────────────────────────────────────────────────────────
+
+function capitalize(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 
 // ── Registration Mark ──────────────────────────────────────────────────────
 
@@ -264,6 +480,8 @@ function SVGPlateVisualization({
   title,
   plateLabel,
   packMode,
+  terms,
+  bleedMm,
 }: {
   plateResult: PlateResult;
   sheetWidth: number;
@@ -274,12 +492,30 @@ function SVGPlateVisualization({
   title: string;
   plateLabel: string;
   packMode: PackMode;
+  terms: IndustryTerms;
+  bleedMm: number;
 }) {
   const { placedGroups, allocation, runLength } = plateResult;
   const pad = 1.2;
   const svgW = sheetWidth + pad * 2;
   const svgH = sheetHeight + pad * 2 + 1.8;
   const uniqueId = plateLabel.replace(/\s/g, "");
+
+  const showGrain = terms.grainDirection !== "—";
+  const showBleedZone = terms.bleed !== "—" && bleedMm > 0;
+
+  // Determine cut-line label based on industry
+  const cutLineLabel = (() => {
+    const key = Object.entries(INDUSTRY_PRESETS).find(([, v]) => v.terms === terms)?.[0];
+    switch (key) {
+      case "cnc-cutting": return "Cut line";
+      case "textile-cutting": return "Pattern boundary";
+      case "pallet-loading": return "Item boundary";
+      case "glass-cutting": return "Score line";
+      case "vlsi-pcb": return "Component outline";
+      default: return "Die-cut line";
+    }
+  })();
 
   return (
     <div className="w-full">
@@ -338,13 +574,13 @@ function SVGPlateVisualization({
                 />
 
                 {/* Bleed zone (hatched) — top */}
-                <rect x={group.x + bleed} y={group.y} width={group.width - 2 * bleed} height={bleed} fill={`url(#bleed-hatch-${uniqueId})`} fillOpacity={0.5} />
+                {showBleedZone && <rect x={group.x + bleed} y={group.y} width={group.width - 2 * bleed} height={bleed} fill={`url(#bleed-hatch-${uniqueId})`} fillOpacity={0.5} />}
                 {/* Bleed zone — bottom */}
-                <rect x={group.x + bleed} y={group.y + group.height - bleed} width={group.width - 2 * bleed} height={bleed} fill={`url(#bleed-hatch-${uniqueId})`} fillOpacity={0.5} />
+                {showBleedZone && <rect x={group.x + bleed} y={group.y + group.height - bleed} width={group.width - 2 * bleed} height={bleed} fill={`url(#bleed-hatch-${uniqueId})`} fillOpacity={0.5} />}
                 {/* Bleed zone — left */}
-                <rect x={group.x} y={group.y + bleed} width={bleed} height={group.height - 2 * bleed} fill={`url(#bleed-hatch-${uniqueId})`} fillOpacity={0.5} />
+                {showBleedZone && <rect x={group.x} y={group.y + bleed} width={bleed} height={group.height - 2 * bleed} fill={`url(#bleed-hatch-${uniqueId})`} fillOpacity={0.5} />}
                 {/* Bleed zone — right */}
-                <rect x={group.x + group.width - bleed} y={group.y + bleed} width={bleed} height={group.height - 2 * bleed} fill={`url(#bleed-hatch-${uniqueId})`} fillOpacity={0.5} />
+                {showBleedZone && <rect x={group.x + group.width - bleed} y={group.y + bleed} width={bleed} height={group.height - 2 * bleed} fill={`url(#bleed-hatch-${uniqueId})`} fillOpacity={0.5} />}
 
                 {/* ── CIRCLE MODE ── */}
                 {itemType === "circle" && group.circles && group.diameter && (
@@ -388,7 +624,6 @@ function SVGPlateVisualization({
                       const sw = group.stickerWidth!;
                       const sh = group.stickerHeight!;
                       const inset = 0.05;
-                      // Use flipVertices for inverted positions (▼), normal vertices for upright (▲)
                       const verts = tp.flip && group.flipVertices && group.flipVertices.length >= 3
                         ? group.flipVertices
                         : group.vertices!;
@@ -531,7 +766,7 @@ function SVGPlateVisualization({
                   fontSize={0.28}
                   fontFamily="monospace"
                 >
-                  {group.outs} outs ({shape.w}&times;{shape.h})
+                  {group.outs} {terms.outs} ({shape.w}&times;{shape.h})
                 </text>
                 <text
                   x={group.x + group.width / 2}
@@ -608,29 +843,37 @@ function SVGPlateVisualization({
             {title}
           </text>
           <text x={sheetWidth / 2} y={-0.7} textAnchor="middle" fill="#94a3b8" fontSize={0.3} fontFamily="monospace">
-            {runLength.toLocaleString()} sheets &times; {plateResult.allocation.reduce((s, a) => s + a.outs, 0)} outs
+            {runLength.toLocaleString()} {terms.sheet}s &times; {plateResult.allocation.reduce((s, a) => s + a.outs, 0)} {terms.outs}
           </text>
 
           {/* Grain direction arrow */}
-          <line x1={0.5} y1={sheetHeight + 0.7} x2={sheetWidth - 0.5} y2={sheetHeight + 0.7} stroke="#06b6d4" strokeWidth={0.035} markerEnd={`url(#arrow-${uniqueId})`} />
-          <text x={sheetWidth / 2} y={sheetHeight + 0.6} textAnchor="middle" fill="#06b6d4" fontSize={0.22} fontFamily="monospace">
-            GRAIN DIRECTION
-          </text>
+          {showGrain && (
+            <>
+              <line x1={0.5} y1={sheetHeight + 0.7} x2={sheetWidth - 0.5} y2={sheetHeight + 0.7} stroke="#06b6d4" strokeWidth={0.035} markerEnd={`url(#arrow-${uniqueId})`} />
+              <text x={sheetWidth / 2} y={sheetHeight + 0.6} textAnchor="middle" fill="#06b6d4" fontSize={0.22} fontFamily="monospace">
+                {terms.grainDirection}
+              </text>
+            </>
+          )}
 
           {/* Legend */}
           <g transform={`translate(0, ${sheetHeight + 1.0})`}>
-            <rect x={0} y={0} width={0.3} height={0.2} rx={0.03} fill={`url(#bleed-hatch-${uniqueId})`} stroke="#f97316" strokeWidth={0.02} />
-            <text x={0.4} y={0.15} fill="#94a3b8" fontSize={0.2} fontFamily="monospace">5mm bleed zone (per group)</text>
+            {showBleedZone && (
+              <>
+                <rect x={0} y={0} width={0.3} height={0.2} rx={0.03} fill={`url(#bleed-hatch-${uniqueId})`} stroke="#f97316" strokeWidth={0.02} />
+                <text x={0.4} y={0.15} fill="#94a3b8" fontSize={0.2} fontFamily="monospace">{bleedMm}mm {terms.bleed} zone (per group)</text>
+              </>
+            )}
 
             {packMode === "circular" ? (
               <>
                 <circle cx={4.15} cy={0.1} r={0.1} fill="none" stroke="#f97316" strokeWidth={0.015} strokeDasharray="0.06 0.03" />
-                <text x={4.4} y={0.15} fill="#94a3b8" fontSize={0.2} fontFamily="monospace">Die-cut line</text>
+                <text x={4.4} y={0.15} fill="#94a3b8" fontSize={0.2} fontFamily="monospace">{cutLineLabel}</text>
               </>
             ) : (
               <>
                 <rect x={4} y={0.02} width={0.3} height={0.16} rx={0.02} fill="none" stroke="#f97316" strokeWidth={0.015} strokeDasharray="0.08 0.04" />
-                <text x={4.4} y={0.15} fill="#94a3b8" fontSize={0.2} fontFamily="monospace">Die-cut line</text>
+                <text x={4.4} y={0.15} fill="#94a3b8" fontSize={0.2} fontFamily="monospace">{cutLineLabel}</text>
               </>
             )}
 
@@ -713,7 +956,7 @@ function KPICard({ label, value, sub, accent = "text-cyan-400" }: { label: strin
 
 // ── Allocation Table ───────────────────────────────────────────────────────
 
-function AllocationTable({ allocation, projectColors, projectNames, packMode }: { allocation: AllocationEntry[]; projectColors: string[]; projectNames: string[]; packMode: PackMode }) {
+function AllocationTable({ allocation, projectColors, projectNames, packMode, terms }: { allocation: AllocationEntry[]; projectColors: string[]; projectNames: string[]; packMode: PackMode; terms: IndustryTerms }) {
   return (
     <div className="overflow-x-auto">
       <Table>
@@ -725,14 +968,14 @@ function AllocationTable({ allocation, projectColors, projectNames, packMode }: 
             ) : packMode === "custom" ? (
               <TableHead className="text-slate-400">Shape</TableHead>
             ) : (
-              <TableHead className="text-slate-400">Sticker Size</TableHead>
+              <TableHead className="text-slate-400">{capitalize(terms.sticker)} Size</TableHead>
             )}
             <TableHead className="text-slate-400 text-right">Order</TableHead>
-            <TableHead className="text-slate-400 text-right">Outs</TableHead>
+            <TableHead className="text-slate-400 text-right">{capitalize(terms.outs)}</TableHead>
             <TableHead className="text-slate-400 text-right">Group</TableHead>
             <TableHead className="text-slate-400 text-right">Produced</TableHead>
-            <TableHead className="text-slate-400 text-right">Overage</TableHead>
-            <TableHead className="text-slate-400 text-right">Overage %</TableHead>
+            <TableHead className="text-slate-400 text-right">{capitalize(terms.overage)}</TableHead>
+            <TableHead className="text-slate-400 text-right">{capitalize(terms.overage)} %</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -784,10 +1027,14 @@ function AllocationTable({ allocation, projectColors, projectNames, packMode }: 
 // ── Main Page Component ────────────────────────────────────────────────────
 
 export default function GangRunCalculator() {
+  const [industry, setIndustry] = useState<IndustryKey>("sticker-printing");
+  const currentPreset = INDUSTRY_PRESETS[industry];
+  const terms = currentPreset.terms;
+
   const [packMode, setPackMode] = useState<PackMode>("rect-mixed");
-  const [sheetWidth, setSheetWidth] = useState(24);
-  const [sheetHeight, setSheetHeight] = useState(16.5);
-  const [bleed, setBleed] = useState(5);
+  const [sheetWidth, setSheetWidth] = useState(currentPreset.defaults.sheetWidth);
+  const [sheetHeight, setSheetHeight] = useState(currentPreset.defaults.sheetHeight);
+  const [bleed, setBleed] = useState(currentPreset.defaults.bleed);
 
   // Per-mode project state
   const [rectSameProjects, setRectSameProjects] = useState<ProjectInput[]>(DEFAULT_RECT_SAME_PROJECTS);
@@ -805,6 +1052,19 @@ export default function GangRunCalculator() {
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [plateSuggestions, setPlateSuggestions] = useState<PlateSuggestion[]>([]);
   const [activeTab, setActiveTab] = useState("two");
+
+  // ── Industry change handler ──────────────────────────────────────────────
+
+  const handleIndustryChange = useCallback((newIndustry: IndustryKey) => {
+    const preset = INDUSTRY_PRESETS[newIndustry];
+    setIndustry(newIndustry);
+    setSheetWidth(preset.defaults.sheetWidth);
+    setSheetHeight(preset.defaults.sheetHeight);
+    setBleed(preset.defaults.bleed);
+    setResult(null);
+    setError(null);
+    setPlateSuggestions([]);
+  }, []);
 
   // ── Mode-specific project helpers ──────────────────────────────────────
 
@@ -891,7 +1151,6 @@ export default function GangRunCalculator() {
           const preset = PRESET_SHAPES[value];
           return { ...p, shapeName: value, vertices: preset ? preset.vertices : p.vertices };
         }
-        // Handle vertices update for new shape
         return { ...p, [field]: parseFloat(value) || 0 };
       })
     );
@@ -977,12 +1236,7 @@ export default function GangRunCalculator() {
   // ── Mode description helper ────────────────────────────────────────────
 
   const getModeDescription = () => {
-    switch (packMode) {
-      case "rect-same": return "All stickers same size, per-project quantities only";
-      case "rect-mixed": return "Sheet size, bleed, and project quantities with per-project sticker dimensions";
-      case "circular": return "Circle stickers with per-project diameter and hexagonal packing";
-      case "custom": return "Preset polygon shapes with ▲▼ tessellation for triangles & hex-offset for diamonds";
-    }
+    return currentPreset.modeDescriptions[packMode];
   };
 
   return (
@@ -994,13 +1248,42 @@ export default function GangRunCalculator() {
             <LayoutGrid className="w-6 h-6 text-cyan-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-100">Gang Run Calculator</h1>
-            <p className="text-xs text-slate-400">Multi-mode sticker optimization with MaxRect 2D packing</p>
+            <h1 className="text-xl font-bold text-slate-100">{currentPreset.headerTitle}</h1>
+            <p className="text-xs text-slate-400">{currentPreset.headerSubtitle}</p>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {/* ── Industry Selector ── */}
+        <Card className="bg-slate-900 border-slate-800">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Shapes className="w-4 h-4 text-cyan-400" />
+                <Label className="text-sm font-semibold text-slate-300 whitespace-nowrap">Industry</Label>
+              </div>
+              <Select value={industry} onValueChange={(val) => handleIndustryChange(val as IndustryKey)}>
+                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-100 w-[260px]">
+                  <SelectValue placeholder="Select industry" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  {(Object.keys(INDUSTRY_PRESETS) as IndustryKey[]).map((key) => {
+                    const preset = INDUSTRY_PRESETS[key];
+                    return (
+                      <SelectItem key={key} value={key} className="text-slate-200 focus:bg-slate-700 focus:text-slate-100">
+                        <span className="mr-2">{preset.icon}</span>
+                        {preset.label}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <span className="text-xs text-slate-500">{currentPreset.description}</span>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* ── Mode Tabs ── */}
         <Card className="bg-slate-900 border-slate-800">
           <CardContent className="pt-5 pb-4">
@@ -1057,17 +1340,21 @@ export default function GangRunCalculator() {
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="space-y-3">
-                    <Label className="text-sm font-semibold text-slate-300">Sheet (inches)</Label>
+                    <Label className="text-sm font-semibold text-slate-300">{capitalize(terms.sheet)} (inches)</Label>
                     <div className="flex items-center gap-2">
                       <Input type="number" step="0.1" min="1" value={sheetWidth} onChange={(e) => setSheetWidth(parseFloat(e.target.value) || 0)} className="bg-slate-800 border-slate-700 text-slate-100" placeholder="W" />
                       <span className="text-slate-500">&times;</span>
                       <Input type="number" step="0.1" min="1" value={sheetHeight} onChange={(e) => setSheetHeight(parseFloat(e.target.value) || 0)} className="bg-slate-800 border-slate-700 text-slate-100" placeholder="H" />
                     </div>
                   </div>
-                  <div className="space-y-3">
-                    <Label className="text-sm font-semibold text-slate-300">Bleed (mm per side, per group)</Label>
-                    <Input type="number" step="0.5" min="0" value={bleed} onChange={(e) => setBleed(parseFloat(e.target.value) || 0)} className="bg-slate-800 border-slate-700 text-slate-100" />
-                  </div>
+                  {terms.bleed !== "—" ? (
+                    <div className="space-y-3">
+                      <Label className="text-sm font-semibold text-slate-300">{capitalize(terms.bleed)} (mm per side, per group)</Label>
+                      <Input type="number" step="0.5" min="0" value={bleed} onChange={(e) => setBleed(parseFloat(e.target.value) || 0)} className="bg-slate-800 border-slate-700 text-slate-100" />
+                    </div>
+                  ) : (
+                    <div />
+                  )}
                 </div>
 
                 <Separator className="bg-slate-700/50" />
@@ -1077,7 +1364,7 @@ export default function GangRunCalculator() {
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-3">
-                        <Label className="text-sm font-semibold text-slate-300">Global Sticker Size (inches)</Label>
+                        <Label className="text-sm font-semibold text-slate-300">Global {capitalize(terms.sticker)} Size (inches)</Label>
                         <div className="flex items-center gap-2">
                           <Input type="number" step="0.1" min="0.1" value={rectSameW || ""} onChange={(e) => setRectSameW(parseFloat(e.target.value) || 0)} className="bg-slate-800 border-slate-700 text-slate-100" placeholder="W" />
                           <span className="text-slate-500">&times;</span>
@@ -1090,7 +1377,7 @@ export default function GangRunCalculator() {
                     </div>
                     <Separator className="bg-slate-700/50" />
                     <div className="flex items-center justify-between flex-wrap gap-2">
-                      <Label className="text-sm font-semibold text-slate-300">Projects (min 2 outs each)</Label>
+                      <Label className="text-sm font-semibold text-slate-300">Projects (min 2 {terms.outs} each)</Label>
                       <Button variant="outline" size="sm" onClick={addRectSameProject} className="bg-slate-800 border-slate-700 text-slate-300 hover:text-slate-100 hover:bg-slate-700">
                         <Plus className="w-4 h-4 mr-1" /> Add
                       </Button>
@@ -1122,7 +1409,7 @@ export default function GangRunCalculator() {
                 {packMode === "rect-mixed" && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between flex-wrap gap-2">
-                      <Label className="text-sm font-semibold text-slate-300">Projects (min 2 outs each — no abandoned projects)</Label>
+                      <Label className="text-sm font-semibold text-slate-300">Projects (min 2 {terms.outs} each — no abandoned projects)</Label>
                       <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm" onClick={() => fillAllSizes(3.5, 4.5)} className="bg-slate-800 border-slate-700 text-slate-300 hover:text-slate-100 hover:bg-slate-700 text-xs">
                           <Ruler className="w-3 h-3 mr-1" /> Fill All 3.5&times;4.5
@@ -1137,7 +1424,7 @@ export default function GangRunCalculator() {
                         <div className="grid grid-cols-[32px_80px_1fr_1fr_1fr_36px] gap-2 text-xs text-slate-500 font-medium px-1">
                           <span></span>
                           <span>NAME</span>
-                          <span>STICKER W&times;H (in)</span>
+                          <span>{capitalize(terms.sticker)} W&times;H (in)</span>
                           <span>QUANTITY</span>
                           <span></span>
                           <span></span>
@@ -1278,7 +1565,7 @@ export default function GangRunCalculator() {
             </DialogHeader>
             {plateSuggestions.length > 0 && (
               <div className="mt-2 space-y-2">
-                <p className="text-sm font-medium text-slate-300">Plate Suggestions:</p>
+                <p className="text-sm font-medium text-slate-300">{capitalize(terms.plate)} Suggestions:</p>
                 <div className="space-y-1.5">
                   {plateSuggestions.map((s) => (
                     <div
@@ -1290,14 +1577,14 @@ export default function GangRunCalculator() {
                       }`}
                     >
                       <span className={`font-bold ${s.feasible ? "text-emerald-400" : "text-slate-500"}`}>
-                        {s.plateCount} {s.plateCount === 1 ? "plate" : "plates"}
+                        {s.plateCount} {s.plateCount === 1 ? terms.plate : `${terms.plate}s`}
                       </span>
                       <span className={s.feasible ? "text-emerald-300" : "text-slate-500"}>
                         {s.description}
                       </span>
                       {s.feasible && (
                         <span className="ml-auto text-xs text-emerald-500">
-                          {s.totalSheets.toLocaleString()} sheets
+                          {s.totalSheets.toLocaleString()} {terms.sheet}s
                         </span>
                       )}
                     </div>
@@ -1325,14 +1612,14 @@ export default function GangRunCalculator() {
               <CardHeader>
                 <CardTitle className="text-slate-100 flex items-center gap-2">
                   <LayoutGrid className="w-5 h-5 text-emerald-400" />
-                  Sheet Capacity
+                  {capitalize(terms.sheet)} Capacity
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <KPICard label="Sheet Size" value={`${sheetWidth}" × ${sheetHeight}"`} accent="text-emerald-400" />
+                  <KPICard label={`${capitalize(terms.sheet)} Size`} value={`${sheetWidth}" × ${sheetHeight}"`} accent="text-emerald-400" />
                   <KPICard label="Mode" value={MODE_CONFIG[packMode].label} sub={MODE_CONFIG[packMode].desc} accent="text-emerald-400" />
-                  <KPICard label="Bleed Per Side" value={`${bleed}mm`} sub={`${bleedInches.toFixed(4)}"`} accent="text-amber-400" />
+                  <KPICard label={terms.bleed !== "—" ? `${capitalize(terms.bleed)} Per Side` : "Bleed"} value={terms.bleed !== "—" ? `${bleed}mm` : "0mm"} sub={bleed > 0 ? `${bleedInches.toFixed(4)}"` : undefined} accent="text-amber-400" />
                   <KPICard label="Algorithm" value={packMode === "circular" ? "HexPack" : "MaxRect"} sub={packMode === "circular" ? "Hexagonal packing" : "2D bin packing"} accent="text-slate-300" />
                 </div>
               </CardContent>
@@ -1344,7 +1631,7 @@ export default function GangRunCalculator() {
                 <CardHeader>
                   <CardTitle className="text-slate-100 flex items-center gap-2">
                     <Layers className="w-5 h-5 text-amber-400" />
-                    Plate Suggestions
+                    {capitalize(terms.plate)} Suggestions
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -1362,10 +1649,10 @@ export default function GangRunCalculator() {
                           {s.plateCount}
                         </div>
                         <div className={`text-xs ${s.feasible ? "text-emerald-300" : "text-slate-500"}`}>
-                          {s.plateCount === 1 ? "plate" : "plates"}
+                          {s.plateCount === 1 ? terms.plate : `${terms.plate}s`}
                         </div>
                         <div className={`text-xs mt-1 ${s.feasible ? "text-emerald-400" : "text-slate-500"}`}>
-                          {s.feasible ? `${s.totalSheets.toLocaleString()} sheets` : "Cannot fit"}
+                          {s.feasible ? `${s.totalSheets.toLocaleString()} ${terms.sheet}s` : "Cannot fit"}
                         </div>
                         {s.feasible && s.description && (
                           <div className="text-[10px] text-slate-500 mt-1">{s.description}</div>
@@ -1381,10 +1668,10 @@ export default function GangRunCalculator() {
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="bg-slate-800 border border-slate-700">
                 <TabsTrigger value="single" className="data-[state=active]:bg-cyan-600 data-[state=active]:text-white">
-                  <Layers className="w-4 h-4 mr-1" /> Single Plate
+                  <Layers className="w-4 h-4 mr-1" /> Single {capitalize(terms.plate)}
                 </TabsTrigger>
                 <TabsTrigger value="two" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
-                  <Layers className="w-4 h-4 mr-1" /> Two Plate
+                  <Layers className="w-4 h-4 mr-1" /> Two {capitalize(terms.plate)}
                 </TabsTrigger>
               </TabsList>
 
@@ -1394,15 +1681,15 @@ export default function GangRunCalculator() {
                   <>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                       <KPICard label="Run Length" value={result.singlePlateResult.runLength.toLocaleString()} accent="text-cyan-400" />
-                      <KPICard label="Total Sheets" value={result.singlePlateResult.totalSheets.toLocaleString()} accent="text-cyan-400" />
-                      <KPICard label="Total Produced" value={result.singlePlateResult.totalProduced.toLocaleString()} sub={`Overage: +${result.singlePlateResult.totalOverage.toLocaleString()}`} accent="text-slate-200" />
+                      <KPICard label={`Total ${capitalize(terms.sheet)}s`} value={result.singlePlateResult.totalSheets.toLocaleString()} accent="text-cyan-400" />
+                      <KPICard label="Total Produced" value={result.singlePlateResult.totalProduced.toLocaleString()} sub={`${capitalize(terms.overage)}: +${result.singlePlateResult.totalOverage.toLocaleString()}`} accent="text-slate-200" />
                       <KPICard label="Material Yield" value={`${result.singlePlateResult.materialYield.toFixed(1)}%`} accent="text-emerald-400" />
                     </div>
 
                     <Card className="bg-slate-900 border-slate-800">
                       <CardHeader><CardTitle className="text-slate-100 text-base">Slot Allocation</CardTitle></CardHeader>
                       <CardContent>
-                        <AllocationTable allocation={result.singlePlateResult.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} packMode={packMode} />
+                        <AllocationTable allocation={result.singlePlateResult.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} packMode={packMode} terms={terms} />
                       </CardContent>
                     </Card>
 
@@ -1415,9 +1702,11 @@ export default function GangRunCalculator() {
                           bleedInches={bleedInches}
                           projectColors={PROJECT_COLORS}
                           projectNames={projectNames}
-                          title="Single Plate Layout"
+                          title={`Single ${capitalize(terms.plate)} Layout`}
                           plateLabel="single"
                           packMode={packMode}
+                          terms={terms}
+                          bleedMm={bleed}
                         />
                       </CardContent>
                     </Card>
@@ -1426,7 +1715,7 @@ export default function GangRunCalculator() {
                   <Card className="bg-slate-900 border-slate-800">
                     <CardContent className="py-8 text-center text-slate-400">
                       <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
-                      <p>Cannot fit all projects on one plate with group constraints (min 2 outs each).</p>
+                      <p>Cannot fit all projects on one {terms.plate} with group constraints (min 2 {terms.outs} each).</p>
                     </CardContent>
                   </Card>
                 )}
@@ -1437,10 +1726,10 @@ export default function GangRunCalculator() {
                 {result.twoPlateResult ? (
                   <>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                      <KPICard label="Total Sheets" value={result.twoPlateResult.totalSheets.toLocaleString()} sub={`P1: ${result.twoPlateResult.plate1.runLength.toLocaleString()} | P2: ${result.twoPlateResult.plate2.runLength.toLocaleString()}`} accent="text-amber-400" />
-                      <KPICard label="Total Produced" value={result.twoPlateResult.totalProduced.toLocaleString()} sub={`Overage: +${result.twoPlateResult.totalOverage.toLocaleString()}`} accent="text-slate-200" />
+                      <KPICard label={`Total ${capitalize(terms.sheet)}s`} value={result.twoPlateResult.totalSheets.toLocaleString()} sub={`P1: ${result.twoPlateResult.plate1.runLength.toLocaleString()} | P2: ${result.twoPlateResult.plate2.runLength.toLocaleString()}`} accent="text-amber-400" />
+                      <KPICard label="Total Produced" value={result.twoPlateResult.totalProduced.toLocaleString()} sub={`${capitalize(terms.overage)}: +${result.twoPlateResult.totalOverage.toLocaleString()}`} accent="text-slate-200" />
                       <KPICard label="Material Yield" value={`${result.twoPlateResult.materialYield.toFixed(1)}%`} accent="text-emerald-400" />
-                      <KPICard label="Sheets Saved" value={result.twoPlateResult.sheetsSaved > 0 ? `-${result.twoPlateResult.sheetsSaved}` : `+${Math.abs(result.twoPlateResult.sheetsSaved)}`} sub={result.twoPlateResult.sheetsSaved > 0 ? "vs single plate" : "more than single"} accent={result.twoPlateResult.sheetsSaved > 0 ? "text-emerald-400" : "text-red-400"} />
+                      <KPICard label={`${capitalize(terms.sheet)}s Saved`} value={result.twoPlateResult.sheetsSaved > 0 ? `-${result.twoPlateResult.sheetsSaved}` : `+${Math.abs(result.twoPlateResult.sheetsSaved)}`} sub={result.twoPlateResult.sheetsSaved > 0 ? `vs single ${terms.plate}` : `more than single`} accent={result.twoPlateResult.sheetsSaved > 0 ? "text-emerald-400" : "text-red-400"} />
                     </div>
 
                     {/* Cost info */}
@@ -1451,11 +1740,11 @@ export default function GangRunCalculator() {
                           <div className="text-sm text-slate-300">
                             {result.twoPlateResult.sheetsSaved > 0 ? (
                               <>
-                                Two plates <span className="text-emerald-400 font-semibold">save {result.twoPlateResult.sheetsSaved.toLocaleString()} sheets</span> but cost{" "}
-                                <span className="text-amber-400 font-semibold">1 extra plate set + setup</span>. Evaluate if paper savings outweigh the additional plate cost.
+                                Two {terms.plate}s <span className="text-emerald-400 font-semibold">save {result.twoPlateResult.sheetsSaved.toLocaleString()} {terms.sheet}s</span> but cost{" "}
+                                <span className="text-amber-400 font-semibold">1 extra {terms.plate} set + setup</span>. Evaluate if material savings outweigh the additional {terms.plate} cost.
                               </>
                             ) : (
-                              <>Two plates do not save sheets for this configuration.</>
+                              <>Two {terms.plate}s do not save {terms.sheet}s for this configuration.</>
                             )}
                           </div>
                         </div>
@@ -1467,11 +1756,11 @@ export default function GangRunCalculator() {
                       <CardHeader>
                         <CardTitle className="text-slate-100 text-base flex items-center gap-2">
                           <div className="w-3 h-3 rounded-sm bg-cyan-500" />
-                          Plate 1 — {result.twoPlateResult.plate1.runLength.toLocaleString()} sheets
+                          {capitalize(terms.plate)} 1 — {result.twoPlateResult.plate1.runLength.toLocaleString()} {terms.sheet}s
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        <AllocationTable allocation={result.twoPlateResult.plate1.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} packMode={packMode} />
+                        <AllocationTable allocation={result.twoPlateResult.plate1.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} packMode={packMode} terms={terms} />
                         <SVGPlateVisualization
                           plateResult={result.twoPlateResult.plate1}
                           sheetWidth={sheetWidth}
@@ -1479,9 +1768,11 @@ export default function GangRunCalculator() {
                           bleedInches={bleedInches}
                           projectColors={PROJECT_COLORS}
                           projectNames={projectNames}
-                          title={`Plate 1 — ${result.twoPlateResult.plate1.runLength.toLocaleString()} sheets`}
+                          title={`${capitalize(terms.plate)} 1 — ${result.twoPlateResult.plate1.runLength.toLocaleString()} ${terms.sheet}s`}
                           plateLabel="plate1"
                           packMode={packMode}
+                          terms={terms}
+                          bleedMm={bleed}
                         />
                       </CardContent>
                     </Card>
@@ -1491,11 +1782,11 @@ export default function GangRunCalculator() {
                       <CardHeader>
                         <CardTitle className="text-slate-100 text-base flex items-center gap-2">
                           <div className="w-3 h-3 rounded-sm bg-amber-500" />
-                          Plate 2 — {result.twoPlateResult.plate2.runLength.toLocaleString()} sheets
+                          {capitalize(terms.plate)} 2 — {result.twoPlateResult.plate2.runLength.toLocaleString()} {terms.sheet}s
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        <AllocationTable allocation={result.twoPlateResult.plate2.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} packMode={packMode} />
+                        <AllocationTable allocation={result.twoPlateResult.plate2.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} packMode={packMode} terms={terms} />
                         <SVGPlateVisualization
                           plateResult={result.twoPlateResult.plate2}
                           sheetWidth={sheetWidth}
@@ -1503,9 +1794,11 @@ export default function GangRunCalculator() {
                           bleedInches={bleedInches}
                           projectColors={PROJECT_COLORS}
                           projectNames={projectNames}
-                          title={`Plate 2 — ${result.twoPlateResult.plate2.runLength.toLocaleString()} sheets`}
+                          title={`${capitalize(terms.plate)} 2 — ${result.twoPlateResult.plate2.runLength.toLocaleString()} ${terms.sheet}s`}
                           plateLabel="plate2"
                           packMode={packMode}
+                          terms={terms}
+                          bleedMm={bleed}
                         />
                       </CardContent>
                     </Card>
@@ -1532,7 +1825,7 @@ export default function GangRunCalculator() {
                   <Card className="bg-slate-900 border-slate-800">
                     <CardContent className="py-8 text-center text-slate-400">
                       <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
-                      <p>Two-plate optimization not available.</p>
+                      <p>Two-{terms.plate} optimization not available.</p>
                     </CardContent>
                   </Card>
                 )}
