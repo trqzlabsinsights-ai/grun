@@ -1,8 +1,8 @@
-// ── Custom Shape Packer — Regular Polygon Stickers (Mixed Gang Run) ────────
+// ── Custom Shape Packer — Regular Polygon Stickers (True Mixed Gang Run) ────
 //
-// Architecture: Multiple projects of the SAME polygon type (e.g., all pentagons)
-// share a single sheet. Each project occupies a rectangular block on the sheet,
-// and within that block, polygons tessellate using the optimized pattern.
+// Architecture: Multiple projects of the SAME polygon type (e.g., all triangles)
+// share a single sheet using TRUE mixed-size gang run packing — different-sized
+// polygons share rows directly, not in separate rectangular blocks.
 //
 // Different polygon types are NEVER mixed on one sheet. This is the gang run
 // concept — sharing a sheet among different-sized projects of the same shape
@@ -16,8 +16,9 @@
 //   7+ sides            → "double-lattice" 180° rotation + offset
 //
 // The allocation search finds optimal outs-per-project that minimizes total
-// sheets (run length), then MaxRect 2D bin packing places rectangular blocks
-// for each project on the shared sheet.
+// sheets (run length), then strip-based row packing places polygons directly
+// on the shared sheet. Smaller projects can fill remaining width in rows
+// primarily belonging to larger projects — TRUE gang run mixing.
 
 import type { GroupShape, PlacedGroup, AllocationEntry, PlateResult, TwoPlateResult, PlateSuggestion } from "./types";
 
@@ -160,7 +161,7 @@ export function getTessStyle(sides: number): TessStyle {
 
 function getRowHeightFactor(sides: number): number {
   switch (sides) {
-    case 3: return 1.0;
+    case 3: return 1.0;   // Triangles: rows don't vertically overlap (bleed-safe)
     case 4: return Math.SQRT2 / 2;
     case 5: return 0.89;
     case 6: return Math.sqrt(3) / 2;
@@ -234,16 +235,24 @@ export function tessCapacity(
   const { cellW, cellH } = effectiveCellDims(sides, shapeW, shapeH, bleedIn);
 
   if (style === "alternate-col") {
-    const step = cellW / 2 + bleedIn;
+    // Triangle tessellation: ▲▼ interlock horizontally with half-width step.
+    // Step = cellW/2 allows ▼ to fit between two ▲'s.
+    // Vertical step = cellH * rowHeightFactor (0.5 for vertical interlocking).
+    const step = cellW / 2;
+    const rowH = cellH * getRowHeightFactor(sides);
     let count = 0;
+    let row = 0;
     let y = bleedIn;
     while (y + shapeH <= sheetH - bleedIn + 0.001) {
+      let col = 0;
       let x = bleedIn;
       while (x + shapeW <= sheetW - bleedIn + 0.001) {
         count++;
         x += step;
+        col++;
       }
-      y += cellH;
+      y += rowH;
+      row++;
     }
     return count;
   }
@@ -287,7 +296,8 @@ function tessGridDimensions(
   const { cellW, cellH } = effectiveCellDims(sides, shapeW, shapeH, bleedIn);
 
   if (style === "alternate-col") {
-    const step = cellW / 2 + bleedIn;
+    const step = cellW / 2;
+    const rowH = cellH * getRowHeightFactor(sides);
     let maxCols = 0;
     let rows = 0;
     let y = bleedIn;
@@ -299,7 +309,7 @@ function tessGridDimensions(
         x += step;
       }
       maxCols = Math.max(maxCols, cols);
-      y += cellH;
+      y += rowH;
       rows++;
     }
     return { w: maxCols, h: rows };
@@ -331,139 +341,6 @@ function tessGridDimensions(
   return { w: maxCols, h: rows };
 }
 
-// ── Block Dimensions ──────────────────────────────────────────────────────
-//
-// A "block" is a rectangular region containing a tessellation of one project's
-// polygons. For gang run, multiple blocks share a sheet via MaxRect packing.
-
-/** Compute the bounding box of a tessellation block with given cols × rows */
-function polygonBlockDimensions(
-  sides: number,
-  shapeW: number,
-  shapeH: number,
-  bleedIn: number,
-  cols: number,
-  rows: number
-): { width: number; height: number } {
-  const style = getTessStyle(sides);
-  const { cellW, cellH } = effectiveCellDims(sides, shapeW, shapeH, bleedIn);
-
-  if (style === "alternate-col") {
-    const step = cellW / 2 + bleedIn;
-    const width = 2 * bleedIn + (cols - 1) * step + shapeW;
-    const height = 2 * bleedIn + (rows - 1) * cellH + shapeH;
-    return { width, height };
-  }
-
-  // honeycomb / double-lattice
-  const rowHFactor = getRowHeightFactor(sides);
-  const rowH = cellH * rowHFactor;
-  const hOff = cellW * getHOffsetFactor(sides);
-  const actual = actualPolygonDims(sides, shapeW, shapeH);
-  const checkW = (sides === 3 || sides === 4 || sides === 6) ? shapeW : actual.width;
-  const checkH = (sides === 3 || sides === 4 || sides === 6) ? shapeH : actual.height;
-
-  // Odd rows are shifted by hOff, so block width must accommodate that
-  const width = 2 * bleedIn + hOff + (cols - 1) * cellW + checkW;
-  const height = 2 * bleedIn + (rows - 1) * rowH + checkH;
-  return { width, height };
-}
-
-/** Count the actual number of items that fit in a block of given dimensions */
-function blockCapacity(
-  blockW: number,
-  blockH: number,
-  sides: number,
-  shapeW: number,
-  shapeH: number,
-  bleedIn: number
-): number {
-  const style = getTessStyle(sides);
-  const { cellW, cellH } = effectiveCellDims(sides, shapeW, shapeH, bleedIn);
-
-  if (style === "alternate-col") {
-    const step = cellW / 2 + bleedIn;
-    let count = 0;
-    let y = bleedIn;
-    while (y + shapeH <= blockH - bleedIn + 0.001) {
-      let x = bleedIn;
-      while (x + shapeW <= blockW - bleedIn + 0.001) {
-        count++;
-        x += step;
-      }
-      y += cellH;
-    }
-    return count;
-  }
-
-  const rowHFactor = getRowHeightFactor(sides);
-  const rowH = cellH * rowHFactor;
-  const hOff = cellW * getHOffsetFactor(sides);
-  const actual = actualPolygonDims(sides, shapeW, shapeH);
-  const checkW = (sides === 3 || sides === 4 || sides === 6) ? shapeW : actual.width;
-  const checkH = (sides === 3 || sides === 4 || sides === 6) ? shapeH : actual.height;
-
-  let count = 0;
-  let row = 0;
-  let y = bleedIn;
-  while (y + checkH <= blockH - bleedIn + 0.001) {
-    const offset = row % 2 === 1 ? hOff : 0;
-    let x = bleedIn + offset;
-    while (x + checkW <= blockW - bleedIn + 0.001) {
-      count++;
-      x += cellW;
-    }
-    y += rowH;
-    row++;
-  }
-  return count;
-}
-
-/** Enumerate possible block shapes (cols × rows) for a target outs count */
-function getPolygonBlockShapes(
-  outs: number,
-  sides: number,
-  shapeW: number,
-  shapeH: number,
-  bleedIn: number
-): Array<{ cols: number; rows: number; capacity: number; width: number; height: number }> {
-  const shapes: Array<{ cols: number; rows: number; capacity: number; width: number; height: number }> = [];
-
-  for (let rows = 1; rows <= outs; rows++) {
-    const cols = Math.ceil(outs / rows);
-    const capacity = cols * rows;
-    if (capacity < outs) continue;
-
-    const dims = polygonBlockDimensions(sides, shapeW, shapeH, bleedIn, cols, rows);
-    shapes.push({ cols, rows, capacity, width: dims.width, height: dims.height });
-  }
-
-  // Also try wider layouts (more cols, fewer rows)
-  for (let cols = 1; cols <= outs; cols++) {
-    const rows = Math.ceil(outs / cols);
-    const capacity = cols * rows;
-    if (capacity < outs) continue;
-
-    const dims = polygonBlockDimensions(sides, shapeW, shapeH, bleedIn, cols, rows);
-    // Avoid duplicates
-    if (!shapes.some(s => s.cols === cols && s.rows === rows)) {
-      shapes.push({ cols, rows, capacity, width: dims.width, height: dims.height });
-    }
-  }
-
-  // Sort by area ascending (compact blocks first), then by aspect ratio
-  shapes.sort((a, b) => {
-    const areaA = a.width * a.height;
-    const areaB = b.width * b.height;
-    if (Math.abs(areaA - areaB) > 0.01) return areaA - areaB;
-    const ratioA = Math.max(a.width, a.height) / Math.min(a.width, a.height);
-    const ratioB = Math.max(b.width, b.height) / Math.min(b.width, b.height);
-    return ratioA - ratioB;
-  });
-
-  return shapes;
-}
-
 // ── Tessellation Position Generation ──────────────────────────────────────
 
 /** Generate tessellation positions within a full sheet */
@@ -481,18 +358,20 @@ export function tessSheetPositions(
   const flipOdd = getFlipOddRows(sides);
 
   if (style === "alternate-col") {
-    const step = cellW / 2 + bleedIn;
+    const step = cellW / 2;
+    const rowH = cellH * getRowHeightFactor(sides);
     let row = 0;
     let y = bleedIn;
     while (y + shapeH <= sheetH - bleedIn + 0.001) {
       let col = 0;
       let x = bleedIn;
       while (x + shapeW <= sheetW - bleedIn + 0.001) {
+        // Flip alternates by column: col 0 = ▲, col 1 = ▼, col 2 = ▲, ...
         positions.push({ x, y, flip: col % 2 === 1 });
         x += step;
         col++;
       }
-      y += cellH;
+      y += rowH;
       row++;
     }
     return positions;
@@ -538,7 +417,8 @@ function tessBlockPositions(
   const flipOdd = getFlipOddRows(sides);
 
   if (style === "alternate-col") {
-    const step = cellW / 2 + bleedIn;
+    const step = cellW / 2;
+    const rowH = cellH * getRowHeightFactor(sides);
     let row = 0;
     let y = blockY + bleedIn;
     while (y + shapeH <= blockY + blockH - bleedIn + 0.001) {
@@ -549,7 +429,7 @@ function tessBlockPositions(
         x += step;
         col++;
       }
-      y += cellH;
+      y += rowH;
       row++;
     }
     return positions;
@@ -578,6 +458,154 @@ function tessBlockPositions(
   return positions;
 }
 
+// ── Row Geometry for Strip Packing ─────────────────────────────────────────
+
+interface RowGeometry {
+  rowHeight: number;     // height of one tessellation row
+  outsPerRow: number;    // how many polygons fit in one full-width row
+  step: number;          // horizontal step between polygons
+  hOffset: number;       // horizontal offset for odd rows
+  cellW: number;
+  cellH: number;
+  checkW: number;        // effective polygon width for bounds checking
+  checkH: number;        // effective polygon height for bounds checking
+}
+
+/** Compute row geometry for a project's polygon at a given size */
+function computeRowGeometry(
+  sides: number, shapeW: number, shapeH: number, bleedIn: number, sheetW: number
+): RowGeometry {
+  const style = getTessStyle(sides);
+  const { cellW, cellH } = effectiveCellDims(sides, shapeW, shapeH, bleedIn);
+  const actual = actualPolygonDims(sides, shapeW, shapeH);
+  const checkW = (sides === 3 || sides === 4 || sides === 6) ? shapeW : actual.width;
+  const checkH = (sides === 3 || sides === 4 || sides === 6) ? shapeH : actual.height;
+
+  if (style === "alternate-col") {
+    // Triangle tessellation: step = cellW/2, flip alternates by column
+    const step = cellW / 2;
+    let outsPerRow = 0;
+    let x = bleedIn;
+    while (x + shapeW <= sheetW - bleedIn + 0.001) {
+      outsPerRow++;
+      x += step;
+    }
+    const rowH = cellH * getRowHeightFactor(sides);
+    return { rowHeight: rowH, outsPerRow, step, hOffset: 0, cellW, cellH, checkW, checkH };
+  }
+
+  const rowHFactor = getRowHeightFactor(sides);
+  const rowH = cellH * rowHFactor;
+  const hOff = cellW * getHOffsetFactor(sides);
+
+  let outsPerRow = 0;
+  let x = bleedIn;
+  while (x + checkW <= sheetW - bleedIn + 0.001) {
+    outsPerRow++;
+    x += cellW;
+  }
+  return { rowHeight: rowH, outsPerRow, step: cellW, hOffset: hOff, cellW, cellH, checkW, checkH };
+}
+
+// ── Strip Row Types ───────────────────────────────────────────────────────
+
+/** A horizontal strip on the sheet containing one or more projects' polygons */
+interface StripRow {
+  projectIdx: number;        // primary project for this row (determines row height)
+  y: number;                 // y position on sheet
+  height: number;            // row height
+  segments: RowSegment[];    // segments within this row (primary + fillers)
+}
+
+/** A contiguous segment within a row belonging to one project */
+interface RowSegment {
+  projectIdx: number;        // which project this segment belongs to
+  outs: number;              // how many polygons in this segment
+  tessPositions: TessPosition[];
+}
+
+// ── Row Position Generation ───────────────────────────────────────────────
+
+/** Generate tessellation positions for a primary project's row */
+function generatePrimaryRowPositions(
+  y: number,
+  count: number,
+  sides: number,
+  shapeW: number,
+  shapeH: number,
+  bleedIn: number,
+  sheetW: number,
+  rg: RowGeometry
+): TessPosition[] {
+  const style = getTessStyle(sides);
+  const positions: TessPosition[] = [];
+  const flipOdd = getFlipOddRows(sides);
+
+  if (style === "alternate-col") {
+    let x = bleedIn;
+    let col = 0;
+    while (positions.length < count && x + shapeW <= sheetW - bleedIn + 0.001) {
+      positions.push({ x, y, flip: col % 2 === 1 });
+      x += rg.step;
+      col++;
+    }
+    return positions;
+  }
+
+  let x = bleedIn;
+  let col = 0;
+  while (positions.length < count && x + rg.checkW <= sheetW - bleedIn + 0.001) {
+    positions.push({ x, y, flip: flipOdd && col % 2 === 1 });
+    x += rg.step;
+    col++;
+  }
+  return positions;
+}
+
+/** Generate tessellation positions for a filler project's row segment */
+function generateFillerRowPositions(
+  y: number,
+  startX: number,
+  maxCount: number,
+  sides: number,
+  shapeW: number,
+  shapeH: number,
+  bleedIn: number,
+  sheetW: number,
+  rg: RowGeometry,
+  rowHeight: number      // the host row's height (may be taller than filler)
+): TessPosition[] {
+  const style = getTessStyle(sides);
+  const positions: TessPosition[] = [];
+  const flipOdd = getFlipOddRows(sides);
+
+  if (style === "alternate-col") {
+    let x = startX;
+    let col = 0;
+    while (positions.length < maxCount && x + shapeW <= sheetW - bleedIn + 0.001) {
+      // Verify vertical fit: polygon must fit within the host row
+      if (y + shapeH <= y + rowHeight + 0.001) {
+        positions.push({ x, y, flip: col % 2 === 1 });
+      }
+      x += rg.step;
+      col++;
+    }
+    return positions;
+  }
+
+  let x = startX;
+  let col = 0;
+  while (positions.length < maxCount && x + rg.checkW <= sheetW - bleedIn + 0.001) {
+    // Verify vertical fit
+    if (y + rg.checkH <= y + rowHeight + 0.001) {
+      positions.push({ x, y, flip: flipOdd && col % 2 === 1 });
+    }
+    x += rg.step;
+    col++;
+  }
+  return positions;
+}
+
 // ── MaxRect 2D Bin Packing ────────────────────────────────────────────────
 
 interface MaxRect {
@@ -587,40 +615,33 @@ interface MaxRect {
   height: number;
 }
 
-interface BlockToPlace {
+interface RowBlockToPlace {
   projectIdx: number;
-  name: string;
-  sides: number;
-  stickerWidth: number;
-  stickerHeight: number;
-  cols: number;
-  rows: number;
-  outs: number;       // actual capacity of this block
-  blockWidth: number;
-  blockHeight: number;
+  rows: number;          // number of tessellation rows in this block
+  outs: number;          // total polygons in this block
+  blockWidth: number;    // width of the block
+  blockHeight: number;   // height of the block
+  rowHeight: number;     // height of one row (for position generation)
 }
 
-interface PlacedBlock {
+interface PlacedRowBlock {
   projectIdx: number;
-  name: string;
-  sides: number;
-  stickerWidth: number;
-  stickerHeight: number;
-  cols: number;
   rows: number;
   outs: number;
   x: number;
   y: number;
   width: number;
   height: number;
+  rowHeight: number;
 }
 
-function maxRectPackBlocks(
-  blocks: BlockToPlace[],
+function maxRectPackRowBlocks(
+  blocks: RowBlockToPlace[],
   sheetW: number,
   sheetH: number
-): PlacedBlock[] | null {
-  const orderings: BlockToPlace[][] = [
+): PlacedRowBlock[] | null {
+  // Try multiple orderings
+  const orderings: RowBlockToPlace[][] = [
     [...blocks].sort((a, b) => b.blockHeight - a.blockHeight),
     [...blocks].sort((a, b) => b.blockWidth - a.blockWidth),
     [...blocks].sort((a, b) => (b.blockWidth * b.blockHeight) - (a.blockWidth * a.blockHeight)),
@@ -632,54 +653,48 @@ function maxRectPackBlocks(
   ];
 
   for (const ordered of orderings) {
-    const result = maxRectPackOneOrder(ordered, sheetW, sheetH);
+    const result = maxRectPackOneOrderRB(ordered, sheetW, sheetH);
     if (result) return result;
   }
   return null;
 }
 
-function maxRectPackOneOrder(
-  blocks: BlockToPlace[],
+function maxRectPackOneOrderRB(
+  blocks: RowBlockToPlace[],
   sheetW: number,
   sheetH: number
-): PlacedBlock[] | null {
+): PlacedRowBlock[] | null {
   let freeRects: MaxRect[] = [{ x: 0, y: 0, width: sheetW, height: sheetH }];
-  const placed: PlacedBlock[] = [];
+  const placed: PlacedRowBlock[] = [];
 
   for (const block of blocks) {
-    const result = findBestFreeRect(freeRects, block.blockWidth, block.blockHeight, sheetW, sheetH);
+    const result = findBestFreeRectRB(freeRects, block.blockWidth, block.blockHeight);
     if (!result) return null;
 
     if (result.x + block.blockWidth > sheetW + 0.001 || result.y + block.blockHeight > sheetH + 0.001) return null;
 
     placed.push({
       projectIdx: block.projectIdx,
-      name: block.name,
-      sides: block.sides,
-      stickerWidth: block.stickerWidth,
-      stickerHeight: block.stickerHeight,
-      cols: block.cols,
       rows: block.rows,
       outs: block.outs,
       x: result.x,
       y: result.y,
       width: block.blockWidth,
       height: block.blockHeight,
+      rowHeight: block.rowHeight,
     });
 
-    freeRects = splitFreeRects(freeRects, result.x, result.y, block.blockWidth, block.blockHeight);
-    freeRects = pruneFreeRects(freeRects);
+    freeRects = splitFreeRectsRB(freeRects, result.x, result.y, block.blockWidth, block.blockHeight);
+    freeRects = pruneFreeRectsRB(freeRects);
   }
 
   return placed;
 }
 
-function findBestFreeRect(
+function findBestFreeRectRB(
   freeRects: MaxRect[],
   rectW: number,
-  rectH: number,
-  _sheetW: number,
-  _sheetH: number
+  rectH: number
 ): { x: number; y: number } | null {
   let bestScore = Infinity;
   let bestRect: { x: number; y: number } | null = null;
@@ -697,7 +712,7 @@ function findBestFreeRect(
   return bestRect;
 }
 
-function splitFreeRects(
+function splitFreeRectsRB(
   freeRects: MaxRect[],
   placedX: number,
   placedY: number,
@@ -731,7 +746,7 @@ function splitFreeRects(
   return result;
 }
 
-function pruneFreeRects(freeRects: MaxRect[]): MaxRect[] {
+function pruneFreeRectsRB(freeRects: MaxRect[]): MaxRect[] {
   const result: MaxRect[] = [];
   for (let i = 0; i < freeRects.length; i++) {
     let contained = false;
@@ -752,22 +767,359 @@ function pruneFreeRects(freeRects: MaxRect[]): MaxRect[] {
   return result;
 }
 
+// ── Row Block Dimensions ───────────────────────────────────────────────
+
+/** Compute the width of a tessellation block with given rows */
+function rowBlockWidth(
+  sides: number,
+  shapeW: number,
+  shapeH: number,
+  bleedIn: number,
+  sheetW: number
+): number {
+  const style = getTessStyle(sides);
+  const { cellW, cellH: _cellH } = effectiveCellDims(sides, shapeW, shapeH, bleedIn);
+  const actual = actualPolygonDims(sides, shapeW, shapeH);
+  const checkW = (sides === 3 || sides === 4 || sides === 6) ? shapeW : actual.width;
+
+  if (style === "alternate-col") {
+    // Full row width: bleed + N triangles (at cellW/2 step) + bleed
+    const step = cellW / 2;
+    let lastX = bleedIn;
+    while (lastX + shapeW <= sheetW - bleedIn + 0.001) {
+      lastX += step;
+    }
+    const fullRowOuts = Math.floor((sheetW - 2 * bleedIn - shapeW) / step) + 1;
+    const width = 2 * bleedIn + (fullRowOuts - 1) * step + shapeW;
+    return width;
+  }
+
+  // honeycomb / double-lattice
+  const hOff = cellW * getHOffsetFactor(sides);
+  let lastX = bleedIn;
+  while (lastX + checkW <= sheetW - bleedIn + 0.001) {
+    lastX += cellW;
+  }
+  const fullRowOuts = Math.floor((sheetW - 2 * bleedIn - checkW) / cellW) + 1;
+  const width = 2 * bleedIn + hOff + (fullRowOuts - 1) * cellW + checkW;
+  return width;
+}
+
+// ── Mixed-Row Packing with MaxRect ──────────────────────────────────────
+
+/**
+ * Pack row-band blocks on the sheet with TRUE gang run mixing.
+ *
+ * Algorithm:
+ * 1. For each project, compute row band(s) — rectangular blocks containing
+ *    one or more tessellation rows that span the full sheet width
+ * 2. Use MaxRect 2D bin packing to place bands efficiently (side-by-side)
+ * 3. After placing primary bands, try to fill gaps with smaller projects'
+ *    polygons (TRUE gang run mixing)
+ * 4. Also fill remaining vertical space with extra rows
+ */
+function packMixedRows(
+  projects: CustomProject[],
+  sides: number,
+  sheetW: number,
+  sheetH: number,
+  bleedIn: number,
+  allocation: number[]
+): StripRow[] | null {
+  const n = allocation.length;
+
+  // Single project: use full sheet tessellation
+  if (n === 1) {
+    const p = projects[0];
+    const positions = tessSheetPositions(sheetW, sheetH, p.stickerWidth, p.stickerHeight, bleedIn, sides);
+    if (positions.length < allocation[0]) return null;
+
+    return [{
+      projectIdx: 0,
+      y: bleedIn,
+      height: sheetH - 2 * bleedIn,
+      segments: [{
+        projectIdx: 0,
+        outs: positions.length,
+        tessPositions: positions,
+      }],
+    }];
+  }
+
+  // Compute row geometry for each project
+  const rowGeometries = projects.map((p) =>
+    computeRowGeometry(sides, p.stickerWidth, p.stickerHeight, bleedIn, sheetW)
+  );
+
+  // For each project, create row-band blocks
+  // Use actual block widths so MaxRect can place blocks side-by-side
+  const allBlocks: RowBlockToPlace[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const rg = rowGeometries[i];
+    const outs = allocation[i];
+    const numRows = Math.ceil(outs / rg.outsPerRow);
+    const blockHeight = numRows * rg.rowHeight;
+
+    // Use actual polygon spread width (not full sheet width)
+    // This allows MaxRect to place blocks side-by-side
+    const blockWidth = rowBlockWidth(sides, projects[i].stickerWidth, projects[i].stickerHeight, bleedIn, sheetW);
+
+    allBlocks.push({
+      projectIdx: i,
+      rows: numRows,
+      outs,
+      blockWidth,
+      blockHeight,
+      rowHeight: rg.rowHeight,
+    });
+  }
+
+  // Try multiple block width strategies
+  // Strategy 1: Use actual polygon spread widths (allows side-by-side placement)
+  const placedBlocks = maxRectPackRowBlocks(allBlocks, sheetW, sheetH);
+  if (placedBlocks) {
+    const result = buildStripRowsFromBlocks(projects, sides, sheetW, sheetH, bleedIn, rowGeometries, placedBlocks, allocation);
+    if (result) return result;
+  }
+
+  // Strategy 2: Use full-width blocks (stacked vertically, simpler but may work)
+  const fullWidthBlocks: RowBlockToPlace[] = allBlocks.map(b => ({
+    ...b,
+    blockWidth: sheetW,
+  }));
+  const fullWidthPlaced = maxRectPackRowBlocks(fullWidthBlocks, sheetW, sheetH);
+  if (fullWidthPlaced) {
+    const result = buildStripRowsFromBlocks(projects, sides, sheetW, sheetH, bleedIn, rowGeometries, fullWidthPlaced, allocation);
+    if (result) return result;
+  }
+
+  // Strategy 3: Split projects into individual row blocks (maximum flexibility)
+  const singleRowBlocks: RowBlockToPlace[] = [];
+  for (let i = 0; i < n; i++) {
+    const rg = rowGeometries[i];
+    const outs = allocation[i];
+    const numRows = Math.ceil(outs / rg.outsPerRow);
+    const blockWidth = rowBlockWidth(sides, projects[i].stickerWidth, projects[i].stickerHeight, bleedIn, sheetW);
+
+    for (let r = 0; r < numRows; r++) {
+      const rowOuts = Math.min(outs - r * rg.outsPerRow, rg.outsPerRow);
+      singleRowBlocks.push({
+        projectIdx: i,
+        rows: 1,
+        outs: rowOuts,
+        blockWidth,
+        blockHeight: rg.rowHeight,
+        rowHeight: rg.rowHeight,
+      });
+    }
+  }
+  const singleRowPlaced = maxRectPackRowBlocks(singleRowBlocks, sheetW, sheetH);
+  if (singleRowPlaced) {
+    return buildStripRowsFromBlocks(projects, sides, sheetW, sheetH, bleedIn, rowGeometries, singleRowPlaced, allocation);
+  }
+
+  return null;
+}
+
+/** Build StripRow[] from placed row-band blocks */
+function buildStripRowsFromBlocks(
+  projects: CustomProject[],
+  sides: number,
+  sheetW: number,
+  sheetH: number,
+  bleedIn: number,
+  rowGeometries: RowGeometry[],
+  placedBlocks: PlacedRowBlock[],
+  allocation: number[]
+): StripRow[] | null {
+  const n = projects.length;
+  const allRows: StripRow[] = [];
+  const placedDemand = new Array(n).fill(0);
+
+  // Generate tessellation positions for each placed block
+  for (const block of placedBlocks) {
+    const rg = rowGeometries[block.projectIdx];
+    const p = projects[block.projectIdx];
+    let outsRemaining = block.outs;
+
+    // Generate positions row by row within this block
+    for (let r = 0; r < block.rows; r++) {
+      const y = block.y + r * rg.rowHeight;
+      const outsThisRow = Math.min(outsRemaining, rg.outsPerRow);
+
+      const positions = generatePrimaryRowPositions(
+        y, outsThisRow, sides, p.stickerWidth, p.stickerHeight,
+        bleedIn, sheetW, rg
+      );
+
+      if (positions.length > 0) {
+        // Check if this y position already has a row (from another block)
+        const existingRow = allRows.find(row => Math.abs(row.y - y) < 0.001);
+        if (existingRow) {
+          // Add as a new segment to the existing row (TRUE mixing!)
+          existingRow.segments.push({
+            projectIdx: block.projectIdx,
+            outs: positions.length,
+            tessPositions: positions,
+          });
+          existingRow.height = Math.max(existingRow.height, rg.rowHeight);
+        } else {
+          allRows.push({
+            projectIdx: block.projectIdx,
+            y,
+            height: rg.rowHeight,
+            segments: [{
+              projectIdx: block.projectIdx,
+              outs: positions.length,
+              tessPositions: positions,
+            }],
+          });
+        }
+
+        placedDemand[block.projectIdx] += positions.length;
+        outsRemaining -= positions.length;
+      }
+    }
+  }
+
+  // ── TRUE GANG RUN MIXING: Fill remaining width in all rows ────────
+  for (const row of allRows) {
+    let rightmostX = 0;
+    for (const seg of row.segments) {
+      if (seg.tessPositions.length > 0) {
+        const lastPos = seg.tessPositions[seg.tessPositions.length - 1];
+        const segP = projects[seg.projectIdx];
+        const segRight = lastPos.x + segP.stickerWidth;
+        if (segRight > rightmostX) rightmostX = segRight;
+      }
+    }
+
+    const remainingWidth = sheetW - bleedIn - rightmostX - bleedIn;
+    if (remainingWidth <= 0) continue;
+
+    const fillerCandidates = [];
+    for (let j = 0; j < n; j++) {
+      if (placedDemand[j] >= allocation[j]) continue;
+
+      const fillerRG = rowGeometries[j];
+      const fillerP = projects[j];
+      if (fillerRG.checkH > row.height + 0.001) continue;
+      if (fillerRG.checkW > remainingWidth + 0.001) continue;
+
+      fillerCandidates.push({ projectIdx: j, rg: fillerRG, p: fillerP });
+    }
+
+    fillerCandidates.sort((a, b) => a.rg.checkW - b.rg.checkW);
+
+    let fillStartX = rightmostX + bleedIn;
+    for (const candidate of fillerCandidates) {
+      const stillNeeded = allocation[candidate.projectIdx] - placedDemand[candidate.projectIdx];
+      if (stillNeeded <= 0) continue;
+
+      const currentRemaining = sheetW - bleedIn - fillStartX;
+      if (currentRemaining <= 0) break;
+      if (candidate.rg.checkW > currentRemaining + 0.001) continue;
+
+      const fillerPositions = generateFillerRowPositions(
+        row.y, fillStartX, stillNeeded, sides,
+        candidate.p.stickerWidth, candidate.p.stickerHeight,
+        bleedIn, sheetW, candidate.rg, row.height
+      );
+
+      if (fillerPositions.length > 0) {
+        row.segments.push({
+          projectIdx: candidate.projectIdx,
+          outs: fillerPositions.length,
+          tessPositions: fillerPositions,
+        });
+        placedDemand[candidate.projectIdx] += fillerPositions.length;
+
+        const lastFillPos = fillerPositions[fillerPositions.length - 1];
+        fillStartX = lastFillPos.x + candidate.p.stickerWidth + bleedIn;
+      }
+    }
+  }
+
+  // ── Fill remaining vertical space with extra rows ───────────────────
+  // Find the bottom of all placed rows
+  let bottomY = 0;
+  for (const row of allRows) {
+    bottomY = Math.max(bottomY, row.y + row.height);
+  }
+
+  let extraY = bottomY;
+  const projectsWithRemaining = [];
+  for (let i = 0; i < n; i++) {
+    const remaining = allocation[i] - placedDemand[i];
+    if (remaining > 0) {
+      projectsWithRemaining.push({
+        projectIdx: i,
+        remaining,
+        rowHeight: rowGeometries[i].rowHeight,
+      });
+    }
+  }
+
+  projectsWithRemaining.sort((a, b) => b.rowHeight - a.rowHeight);
+
+  for (const pr of projectsWithRemaining) {
+    const rg = rowGeometries[pr.projectIdx];
+    const p = projects[pr.projectIdx];
+    let outsRemaining = pr.remaining;
+
+    while (outsRemaining > 0) {
+      if (extraY + rg.rowHeight > sheetH - bleedIn + 0.001) break;
+
+      const outsThisRow = Math.min(outsRemaining, rg.outsPerRow);
+      const positions = generatePrimaryRowPositions(
+        extraY, outsThisRow, sides, p.stickerWidth, p.stickerHeight,
+        bleedIn, sheetW, rg
+      );
+
+      if (positions.length === 0) break;
+
+      allRows.push({
+        projectIdx: pr.projectIdx,
+        y: extraY,
+        height: rg.rowHeight,
+        segments: [{
+          projectIdx: pr.projectIdx,
+          outs: positions.length,
+          tessPositions: positions,
+        }],
+      });
+
+      extraY += rg.rowHeight;
+      outsRemaining -= positions.length;
+      placedDemand[pr.projectIdx] += positions.length;
+    }
+  }
+
+  // Verify all projects have at least their allocation met
+  for (let i = 0; i < n; i++) {
+    if (placedDemand[i] < allocation[i]) return null;
+  }
+
+  return allRows;
+}
+
 // ── Allocation Search ──────────────────────────────────────────────────────
 
 interface AllocationWithPacking {
   allocation: number[];      // outs per project per sheet
   runLength: number;
-  blocks: PlacedBlock[];
+  rows: StripRow[];
 }
 
 /**
  * Find the best allocation of outs per project that:
- * 1. Fits all project blocks on one sheet (MaxRect packing)
+ * 1. Fits all project rows on one sheet (strip packing with mixing)
  * 2. Minimizes total run length (sheets printed)
  *
  * Strategy: Search over run lengths L from 1 upward. For each L, compute
  * the balanced allocation outs_i = ceil(demand_i / L), then try to pack
- * the blocks. The first L where packing succeeds is optimal.
+ * the rows. The first L where packing succeeds is optimal.
  * Also try "boosted" allocations (giving extra outs) to find better fits.
  */
 function findBestAllocationWithPacking(
@@ -811,12 +1163,12 @@ function findBestAllocationWithPacking(
     if (!feasible) continue;
 
     // Try the base allocation first
-    const basePacking = tryPackAllocation(baseAllocation, projects, sides, sheetW, sheetH, bleedIn);
+    const basePacking = packMixedRows(projects, sides, sheetW, sheetH, bleedIn, baseAllocation);
     if (basePacking) {
       return {
         allocation: baseAllocation,
         runLength: L,
-        blocks: basePacking,
+        rows: basePacking,
       };
     }
 
@@ -825,12 +1177,12 @@ function findBestAllocationWithPacking(
     for (let boostIdx = 0; boostIdx < n; boostIdx++) {
       const boosted = [...baseAllocation];
       boosted[boostIdx] = Math.min(perProjectMax[boostIdx], boosted[boostIdx] + 1);
-      const packing = tryPackAllocation(boosted, projects, sides, sheetW, sheetH, bleedIn);
+      const packing = packMixedRows(projects, sides, sheetW, sheetH, bleedIn, boosted);
       if (packing) {
         return {
           allocation: boosted,
           runLength: L,
-          blocks: packing,
+          rows: packing,
         };
       }
     }
@@ -839,109 +1191,18 @@ function findBestAllocationWithPacking(
     for (let boostIdx = 0; boostIdx < n; boostIdx++) {
       const boosted = [...baseAllocation];
       boosted[boostIdx] = Math.min(perProjectMax[boostIdx], boosted[boostIdx] + 2);
-      const packing = tryPackAllocation(boosted, projects, sides, sheetW, sheetH, bleedIn);
+      const packing = packMixedRows(projects, sides, sheetW, sheetH, bleedIn, boosted);
       if (packing) {
         return {
           allocation: boosted,
           runLength: L,
-          blocks: packing,
+          rows: packing,
         };
       }
     }
   }
 
   return null;
-}
-
-/** Try to pack blocks for a given allocation onto one sheet */
-function tryPackAllocation(
-  allocation: number[],
-  projects: CustomProject[],
-  sides: number,
-  sheetW: number,
-  sheetH: number,
-  bleedIn: number
-): PlacedBlock[] | null {
-  const n = allocation.length;
-
-  // Special case: single project — block fills entire sheet
-  if (n === 1) {
-    const outs = allocation[0];
-    const p = projects[0];
-    const cap = tessCapacity(sheetW, sheetH, p.stickerWidth, p.stickerHeight, bleedIn, sides);
-    if (cap < outs) return null;
-
-    // Use full sheet as block
-    const gridShape = tessGridDimensions(sheetW, sheetH, p.stickerWidth, p.stickerHeight, bleedIn, sides);
-    return [{
-      projectIdx: 0,
-      name: p.name,
-      sides,
-      stickerWidth: p.stickerWidth,
-      stickerHeight: p.stickerHeight,
-      cols: gridShape.w,
-      rows: gridShape.h,
-      outs: cap,
-      x: 0,
-      y: 0,
-      width: sheetW,
-      height: sheetH,
-    }];
-  }
-
-  const allBlockShapes = allocation.map((outs, i) =>
-    getPolygonBlockShapes(outs, sides, projects[i].stickerWidth, projects[i].stickerHeight, bleedIn)
-  );
-
-  let attempts = 0;
-  const maxAttempts = 200;
-
-  function tryCombo(
-    idx: number,
-    currentBlocks: BlockToPlace[]
-  ): PlacedBlock[] | null {
-    if (idx === n) {
-      attempts++;
-      if (attempts > maxAttempts) return null;
-
-      // Pre-check: no single block exceeds sheet dimensions
-      for (const b of currentBlocks) {
-        if (b.blockWidth > sheetW + 0.001 || b.blockHeight > sheetH + 0.001) return null;
-      }
-
-      const placed = maxRectPackBlocks(currentBlocks, sheetW, sheetH);
-      return placed;
-    }
-
-    // Try up to 8 best shapes per project (more options = better fit)
-    const shapesToTry = allBlockShapes[idx].slice(0, 8);
-    for (const shape of shapesToTry) {
-      if (shape.width > sheetW + 0.001 || shape.height > sheetH + 0.001) continue;
-
-      const block: BlockToPlace = {
-        projectIdx: idx,
-        name: projects[idx].name,
-        sides,
-        stickerWidth: projects[idx].stickerWidth,
-        stickerHeight: projects[idx].stickerHeight,
-        cols: shape.cols,
-        rows: shape.rows,
-        outs: shape.capacity,
-        blockWidth: shape.width,
-        blockHeight: shape.height,
-      };
-
-      currentBlocks.push(block);
-      const result = tryCombo(idx + 1, currentBlocks);
-      if (result) return result;
-      currentBlocks.pop();
-
-      if (attempts > maxAttempts) return null;
-    }
-    return null;
-  }
-
-  return tryCombo(0, []);
 }
 
 // ── Polygon Area for Material Yield ────────────────────────────────────────
@@ -963,7 +1224,7 @@ function polygonArea(sides: number, bbW: number, bbH: number): number {
   return (sides / 2) * R * R * Math.sin((2 * Math.PI) / sides);
 }
 
-// ── Build Plate Result from Packing ────────────────────────────────────────
+// ── Build Plate Result from Strip Rows ─────────────────────────────────────
 
 function buildPlateResult(
   projects: CustomProject[],
@@ -974,41 +1235,59 @@ function buildPlateResult(
   sheetH: number,
   bleedIn: number,
   sides: number,
-  placedBlocks: PlacedBlock[]
+  stripRows: StripRow[]
 ): PlateResult {
-  // Build placed groups with tessellation positions first
-  // to get actual outs counts
-  const placedGroups: PlacedGroup[] = placedBlocks.map((block) => {
-    const projIdx = indices[block.projectIdx];
+  // Collect all tessPositions per project across all rows
+  const projectPositions = new Map<number, TessPosition[]>();
+  for (const row of stripRows) {
+    for (const seg of row.segments) {
+      const projIdx = indices[seg.projectIdx];
+      if (!projectPositions.has(projIdx)) {
+        projectPositions.set(projIdx, []);
+      }
+      projectPositions.get(projIdx)!.push(...seg.tessPositions);
+    }
+  }
 
-    // Generate tessellation positions within the block
-    const tessPositions = tessBlockPositions(
-      block.x, block.y, block.width, block.height,
-      sides, block.stickerWidth, block.stickerHeight, bleedIn
-    );
+  // Build PlacedGroup for each project
+  const placedGroups: PlacedGroup[] = [];
 
-    // Actual outs = number of tessellation positions
-    const actualOuts = tessPositions.length;
+  for (const [projIdx, positions] of projectPositions) {
+    if (positions.length === 0) continue;
 
-    return {
-      name: projects[projIdx].name,
+    const p = projects[projIdx];
+
+    // Compute bounding box of all positions
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const pos of positions) {
+      minX = Math.min(minX, pos.x);
+      minY = Math.min(minY, pos.y);
+      maxX = Math.max(maxX, pos.x + p.stickerWidth);
+      maxY = Math.max(maxY, pos.y + p.stickerHeight);
+    }
+
+    // Compute grid shape from the full sheet layout
+    const gridShape = tessGridDimensions(sheetW, sheetH, p.stickerWidth, p.stickerHeight, bleedIn, sides);
+
+    placedGroups.push({
+      name: p.name,
       projectIdx: projIdx,
-      shape: { w: block.cols, h: block.rows },
-      outs: actualOuts,
-      x: block.x,
-      y: block.y,
-      width: block.width,
-      height: block.height,
-      stickerWidth: block.stickerWidth,
-      stickerHeight: block.stickerHeight,
+      shape: gridShape,
+      outs: positions.length,
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+      stickerWidth: p.stickerWidth,
+      stickerHeight: p.stickerHeight,
       sides,
       vertices: getPolygonVertices(sides),
       flipVertices: getPolygonFlipVertices(sides),
       tessellated: true,
-      tessPositions,
+      tessPositions: positions,
       itemType: "custom" as const,
-    };
-  });
+    });
+  }
 
   // Build allocation entries using actual outs from placed groups
   let totalOrderQty = 0;
@@ -1102,8 +1381,8 @@ function findBestTwoPlate(
 
     bestTotal = totalSheets;
 
-    const plate1Res = buildPlateResult(projects, plate1Indices, p1Result.allocation, p1Result.runLength, sheetW, sheetH, bleedIn, sides, p1Result.blocks);
-    const plate2Res = buildPlateResult(projects, plate2Indices, p2Result.allocation, p2Result.runLength, sheetW, sheetH, bleedIn, sides, p2Result.blocks);
+    const plate1Res = buildPlateResult(projects, plate1Indices, p1Result.allocation, p1Result.runLength, sheetW, sheetH, bleedIn, sides, p1Result.rows);
+    const plate2Res = buildPlateResult(projects, plate2Indices, p2Result.allocation, p2Result.runLength, sheetW, sheetH, bleedIn, sides, p2Result.rows);
 
     const combinedProduced = plate1Res.totalProduced + plate2Res.totalProduced;
     const totalOrderQty = projects.reduce((s, p) => s + p.quantity, 0);
@@ -1190,7 +1469,7 @@ export function calculateCustom(req: {
   if (singleResult) {
     singlePlateResult = buildPlateResult(
       projects, allIndices, singleResult.allocation, singleResult.runLength,
-      sheetWidth, sheetHeight, bleedIn, sides, singleResult.blocks
+      sheetWidth, sheetHeight, bleedIn, sides, singleResult.rows
     );
   }
 
