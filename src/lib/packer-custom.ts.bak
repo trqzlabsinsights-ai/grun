@@ -1,18 +1,15 @@
 // ── Custom Shape Packer — Regular Polygon Stickers ──────────────────────────
 // Supports regular polygons defined by number of sides (3+).
 //
-// ALL polygons use optimized packing with 180° rotation (Kuperberg
-// double-lattice inspired). Non-rectangular polygons (pentagon, heptagon,
-// octagon, etc.) use their ACTUAL footprint dimensions (not bounding box)
-// for cell spacing, which allows tighter packing since the polygon doesn't
-// fill the corners of its bounding box.
-//
-// Packing strategies:
+// Packing strategies (Kuperberg double-lattice inspired):
 //   3 sides (triangle)  → "alternate-col" ▲▼▲▼ within each row
-//   4 sides (diamond)   → "hex-offset" honeycomb
-//   5 sides (pentagon)  → "double-lattice" alternating up/down columns
+//   4 sides (diamond)   → "hex-offset" honeycomb with 180° rotation on odd rows
+//   5 sides (pentagon)  → "double-lattice" alternating up/down columns (Kuperberg)
 //   6 sides (hexagon)   → "hex-offset" honeycomb
 //   7+ sides            → "hex-offset" with 180° rotation on odd rows
+//
+// All polygons use optimized packing — no simple grid fallback.
+// Odd rows are offset horizontally and shapes are 180° rotated to interlock.
 
 import {
   maxRectPack,
@@ -56,7 +53,7 @@ export interface PlacedCustomGroup {
   stickerHeight: number;
   sides: number;
   vertices: Point[];       // normalized 0-1 for "up" orientation
-  flipVertices: Point[];   // normalized 0-1 for 180° rotated orientation
+  flipVertices: Point[];   // normalized 0-1 for "down" orientation (180° rotated)
   tessellated: boolean;    // true = optimized packing used
   itemType: "custom";
   /** For tessellated shapes: absolute positions of each individual shape */
@@ -138,7 +135,7 @@ export function generateFlipPolygon(sides: number): Point[] {
   const vertices: Point[] = [];
   for (let i = 0; i < sides; i++) {
     const angle = (2 * Math.PI * i) / sides - Math.PI / 2;
-    // 180° rotation around center (0.5, 0.5): negate both offsets
+    // 180° rotation: negate both x and y offsets from center
     vertices.push({
       x: 0.5 - 0.5 * Math.cos(angle),
       y: 0.5 - 0.5 * Math.sin(angle),
@@ -178,145 +175,81 @@ export function getPolygonName(sides: number): string {
   return names[sides] || `${sides}-gon`;
 }
 
-/** Convert sides number to shapeName key (legacy compat) */
-export function sidesToShapeName(sides: number): string {
-  const map: Record<number, string> = {
-    3: "triangle", 4: "diamond", 5: "pentagon", 6: "hexagon",
-    7: "heptagon", 8: "octagon", 9: "nonagon", 10: "decagon",
-  };
-  return map[sides] || `${sides}-gon`;
-}
+// ── Polygon Geometry Helpers ───────────────────────────────────────────────
 
 // ── Polygon Geometry for Optimized Packing ────────────────────────────────
 //
-// CRITICAL INSIGHT: The bounding box (stickerWidth × stickerHeight) is LARGER
-// than the actual polygon footprint. For example, a regular pentagon inscribed
-// in a 3"×3" bounding box only occupies ~2.85"×2.71" of actual space.
+// Key insight (Kuperberg double-lattice):
+// When a regular polygon is 180° rotated, its flat edges align with the
+// vertices of the un-rotated neighbor. This creates interlocking that
+// allows rows to be placed closer together.
 //
-// By using the ACTUAL polygon footprint for packing calculations (instead of
-// the full bounding box), we can pack shapes tighter — especially when 180°
-// rotated shapes interlock their vertices into each other's gaps.
+// For a regular n-gon inscribed in a circle of radius R:
+//   - Apothem (center to edge midpoint) = R · cos(π/n)
+//   - The height of the polygon = R + R·cos(π/n) = R·(1 + cos(π/n))
+//   - The width at widest = 2·R·sin(2π/n)  [for n≥5]
 //
-// Kuperberg double-lattice (pentagon): density (5−√5)/3 ≈ 0.921
-// Our approach: use actual polygon width/height for cell spacing, with 180°
-// rotation on alternate rows so vertices nest into bounding-box gaps.
+// When two rows are offset and 180°-rotated, the effective vertical spacing
+// shrinks because the vertex of one polygon fits into the flat edge gap
+// of the neighbor. The row overlap = R·(1 - cos(π/n)).
 
 /**
- * Compute the actual (tight) dimensions of a regular polygon inscribed in
- * a bounding box of bbW × bbH.
+ * Compute the apothem ratio for a regular n-gon: cos(π/n).
+ * This is the fraction of the circumradius that is the apothem.
+ */
+function apothemRatio(sides: number): number {
+  return Math.cos(Math.PI / sides);
+}
+
+/**
+ * Compute the horizontal offset fraction for odd rows.
+ * This is the fraction of cellW by which odd rows are shifted right.
  *
- * For a regular n-gon, the circumradius R is constrained by the bounding box.
- * The actual polygon extends less than the full bounding box in both directions.
+ * For tessellating shapes (3,4,6): 0.5 (standard honeycomb offset)
+ * For pentagon (Kuperberg): offset aligns downward pentagons between upward ones
+ * For 7+ sides: offset based on the half-width at the equator
  */
-function actualPolygonDims(
-  sides: number, bbW: number, bbH: number
-): { width: number; height: number } {
-  if (sides === 3) {
-    // Triangle: vertices touch bounding box edges, use full box
-    return { width: bbW, height: bbH };
-  }
-  if (sides === 4) {
-    // Diamond: vertices at midpoints of bounding box edges
-    return { width: bbW, height: bbH };
-  }
-  if (sides === 6) {
-    // Hexagon: perfect tessellation, use full bounding box
-    return { width: bbW, height: bbH };
-  }
-
-  // For n ≥ 5 (odd) or n ≥ 8 (even, non-tessellating):
-  // Compute circumradius R from bounding box constraints
-  let R: number;
-  if (sides % 2 === 1) {
-    // Odd-sided: vertex at top, vertex at bottom
-    // Height = R·(1 + cos(π/n)), Width = 2R·sin(2π/n)
-    const R_fromH = bbH / (1 + Math.cos(Math.PI / sides));
-    const R_fromW = bbW / (2 * Math.sin(2 * Math.PI / sides));
-    R = Math.min(R_fromH, R_fromW);
-    const actualW = 2 * R * Math.sin(2 * Math.PI / sides);
-    const actualH = R * (1 + Math.cos(Math.PI / sides));
-    return { width: actualW, height: actualH };
-  } else {
-    // Even-sided (8, 10, 12...): vertex at top, flat edge at bottom
-    // Height = 2R·cos(π/n), Width = 2R (for n divisible by 4) or 2R·sin(2π/n)
-    const R_fromH = bbH / (2 * Math.cos(Math.PI / sides));
-    const R_fromW = bbW / 2;
-    R = Math.min(R_fromH, R_fromW);
-    const actualW = Math.min(2 * R, bbW);
-    const actualH = 2 * R * Math.cos(Math.PI / sides);
-    return { width: actualW, height: actualH };
-  }
+function polygonHexOffset(sides: number): number {
+  if (sides === 3) return 0.5;
+  if (sides === 4) return 0.5;
+  if (sides === 5) return 0.5; // Kuperberg: columns alternate, 50% offset
+  if (sides === 6) return 0.5;
+  // For 7+ sides: the polygon is more circular, so offset less aggressive
+  // The offset should place the vertex of one row into the gap of the next
+  // sin(π/n) gives the half-width at the equator as fraction of diameter
+  return Math.max(0.35, 0.5 * Math.sin(Math.PI / sides) + 0.15);
 }
 
 /**
- * Compute the effective cell dimensions for packing.
- * - For tessellating shapes (3,4,6): use bounding box + bleed
- * - For all others: use actual polygon footprint + bleed
+ * Compute the vertical row height factor relative to cellH.
+ * This determines how much vertical space each row consumes.
+ *
+ * For tessellating shapes: sqrt(3)/2 ≈ 0.866
+ * For non-tessellating shapes with 180° rotation interlocking:
+ *   The vertex of one row fits into the gap of the row below,
+ *   reducing effective row height. The overlap equals R·(1-cos(π/n)),
+ *   so the effective row height ≈ cellH - overlap = cellH·cos(π/n) + bleed
+ *   As a fraction: the row factor ≈ (apothemRatio + 1) / 2 for a tight fit.
  */
-function effectiveCellDims(
-  sides: number, bbW: number, bbH: number, bleedIn: number
-): { cellW: number; cellH: number } {
-  if (sides === 3 || sides === 4 || sides === 6) {
-    return { cellW: bbW + 2 * bleedIn, cellH: bbH + 2 * bleedIn };
-  }
-  const actual = actualPolygonDims(sides, bbW, bbH);
-  return {
-    cellW: actual.width + 2 * bleedIn,
-    cellH: actual.height + 2 * bleedIn,
-  };
-}
+function polygonRowHeightFactor(sides: number): number {
+  if (sides === 3) return 1.0;           // triangles: no row overlap
+  if (sides === 4) return Math.sqrt(3) / 2; // diamonds: ~0.866
+  if (sides === 6) return Math.sqrt(3) / 2; // hexagons: ~0.866
 
-/**
- * Compute the horizontal offset for odd rows.
- * For tessellating shapes (3,4,6): 50% offset (standard honeycomb)
- * For non-tessellating (5,7,8+): smaller offset to avoid losing items in odd rows
- *   while still allowing 180° rotated shapes to interlock with neighbors
- */
-function polygonHOffset(sides: number, cellW: number): number {
-  if (sides === 3 || sides === 4 || sides === 6) return cellW / 2;
-  // For non-tessellating: offset by about 35% of cellW
-  // This still creates interlocking while keeping items in odd rows
-  return cellW * 0.35;
-}
-
-/**
- * Compute the vertical row height for optimized packing.
- * For tessellating shapes: standard honeycomb spacing
- * For non-tessellating: tighter spacing enabled by 180° rotation interlocking
- */
-function polygonRowHeight(
-  sides: number, cellH: number, bbH: number, bleedIn: number
-): number {
-  if (sides === 3) return cellH; // triangles: full row height
-
-  if (sides === 4 || sides === 6) {
-    return cellH * Math.sqrt(3) / 2; // honeycomb
-  }
-
-  // For non-tessellating polygons (5, 7, 8+):
-  // When 180° rotated, the vertex of one row fits into the bounding-box
-  // gap of the adjacent row. The vertical gap between actual polygon and
-  // bounding box allows rows to overlap deeply.
-  //
-  // The key insight: bounding boxes can OVERLAP because the actual polygon
-  // doesn't fill the corners. When a downward-pointing polygon is placed
-  // below an upward-pointing one, the vertex of the downward one occupies
-  // the empty corner space of the upward one's bounding box.
-  //
-  // The safe overlap per row transition = bbH - actualH (the vertical gap
-  // between polygon and its bounding box). This is the maximum that the
-  // vertex of the flipped shape can safely penetrate into the gap.
-  // We use 90% of this gap for a tight but safe packing.
-  const actual = actualPolygonDims(sides, bbH, bbH);
-  const verticalGap = bbH - actual.height;
-  const overlap = verticalGap * 0.9;
-  const rowH = cellH - overlap;
-  return Math.max(cellH * 0.7, rowH);
+  // For pentagon (Kuperberg double-lattice):
+  // When downward pentagons nest between upward ones, the vertex (top point)
+  // of the downward pentagon fits into the gap between two adjacent upward
+  // pentagons. The effective row spacing is:
+  //   rowHeight = cellH · (1 + cos(π/n)) / 2  — but not less than apothem fraction
+  // For pentagon: cos(π/5) ≈ 0.809 → factor ≈ 0.905
+  // This gives tighter packing than the 0.866 of hexagonal offset
+  const ar = apothemRatio(sides);
+  return Math.max(0.75, Math.min(0.92, (1 + ar) / 2));
 }
 
 /** Check if a polygon with given sides uses optimized packing (all do now) */
 export function isTessellated(sides: number): boolean {
-  return true; // All polygons use optimized packing
+  return true; // All polygons use optimized packing now
 }
 
 /** Get tessellation style for a polygon */
@@ -326,7 +259,13 @@ export function getTessStyle(sides: number): TessStyle {
   return "hex-offset";
 }
 
-/** Get vertices for a polygon */
+/** Check if a polygon uses flip vertices (180° rotation) in alternate positions */
+function needsFlip(sides: number): boolean {
+  // All polygons benefit from 180° rotation in alternate rows/cols
+  return true;
+}
+
+/** Get vertices for a polygon, using optimized tessellation vertices where applicable */
 function getPolygonVertices(sides: number): Point[] {
   if (sides === 3) return triangleUp();
   return generateRegularPolygon(sides);
@@ -338,12 +277,18 @@ function getPolygonFlipVertices(sides: number): Point[] {
   return generateFlipPolygon(sides);
 }
 
+/** Convert sides number to shapeName key (legacy compat) */
+export function sidesToShapeName(sides: number): string {
+  const map: Record<number, string> = {
+    3: "triangle", 4: "diamond", 5: "pentagon", 6: "hexagon",
+    7: "heptagon", 8: "octagon", 9: "nonagon", 10: "decagon",
+  };
+  return map[sides] || `${sides}-gon`;
+}
+
 // ── Legacy PRESET_SHAPES (internal use only) ───────────────────────────────
 
-export const PRESET_SHAPES: Record<string, {
-  label: string; vertices: Point[]; flipVertices: Point[];
-  icon: string; tessellated: boolean; tessStyle: TessStyle;
-}> = {
+export const PRESET_SHAPES: Record<string, { label: string; vertices: Point[]; flipVertices: Point[]; icon: string; tessellated: boolean; tessStyle: TessStyle }> = {
   triangle: { label: "Triangle", icon: "▲", tessellated: true, tessStyle: "alternate-col", vertices: triangleUp(), flipVertices: triangleDown() },
   diamond: { label: "Diamond", icon: "◆", tessellated: true, tessStyle: "hex-offset", vertices: generateRegularPolygon(4), flipVertices: generateFlipPolygon(4) },
   pentagon: { label: "Pentagon", icon: "⬠", tessellated: true, tessStyle: "double-lattice", vertices: generateRegularPolygon(5), flipVertices: generateFlipPolygon(5) },
@@ -358,8 +303,7 @@ export const PRESET_SHAPES: Record<string, {
 
 /**
  * Count shapes that fit on a sheet using optimized packing.
- * ALL polygons use hex-offset or double-lattice packing with 180° rotation.
- * Non-tessellating polygons use their actual footprint (smaller than bbox).
+ * ALL polygons now use hex-offset or double-lattice packing with 180° rotation.
  */
 export function tessCapacity(
   sheetW: number,
@@ -370,7 +314,8 @@ export function tessCapacity(
   sides: number
 ): number {
   const style = getTessStyle(sides);
-  const { cellW, cellH } = effectiveCellDims(sides, shapeW, shapeH, bleedIn);
+  const cellW = shapeW + 2 * bleedIn;
+  const cellH = shapeH + 2 * bleedIn;
 
   if (style === "alternate-col") {
     // Triangle: each shape occupies half-width in alternating columns
@@ -388,27 +333,48 @@ export function tessCapacity(
     return count;
   }
 
-  // Hex-offset / double-lattice: all use offset + 180° rotation on odd rows
-  const rowH = polygonRowHeight(sides, cellH, shapeH, bleedIn);
-  const hOff = polygonHOffset(sides, cellW);
+  if (style === "double-lattice") {
+    // Pentagon (Kuperberg double-lattice):
+    // Alternating columns of upward and downward pentagons.
+    // Upward columns are at normal x positions.
+    // Downward (180° rotated) columns are offset horizontally by half a cell
+    // AND vertically shifted by half a cell height, nesting into gaps.
+    const rowFactor = polygonRowHeightFactor(sides);
+    const rowHeight = cellH * rowFactor;
+    const hOffset = cellW * polygonHexOffset(sides);
 
-  // For non-tessellating polygons, use actual footprint for boundary checks
-  // since the polygon doesn't fill the bounding box corners
-  const actual = actualPolygonDims(sides, shapeW, shapeH);
-  const checkW = (sides === 3 || sides === 4 || sides === 6) ? shapeW : actual.width;
-  const checkH = (sides === 3 || sides === 4 || sides === 6) ? shapeH : actual.height;
+    let count = 0;
+    let row = 0;
+    let y = bleedIn;
+    while (y + shapeH <= sheetH - bleedIn + 0.001) {
+      const offset = row % 2 === 1 ? hOffset : 0;
+      let x = bleedIn + offset;
+      while (x + shapeW <= sheetW - bleedIn + 0.001) {
+        count++;
+        x += cellW;
+      }
+      y += rowHeight;
+      row++;
+    }
+    return count;
+  }
+
+  // Hex-offset (squares, hexagons, heptagons, octagons, etc.)
+  const rowFactor = polygonRowHeightFactor(sides);
+  const rowHeight = cellH * rowFactor;
+  const hOffset = cellW * polygonHexOffset(sides);
 
   let count = 0;
   let row = 0;
   let y = bleedIn;
-  while (y + checkH <= sheetH - bleedIn + 0.001) {
-    const offset = row % 2 === 1 ? hOff : 0;
+  while (y + shapeH <= sheetH - bleedIn + 0.001) {
+    const offset = row % 2 === 1 ? hOffset : 0;
     let x = bleedIn + offset;
-    while (x + checkW <= sheetW - bleedIn + 0.001) {
+    while (x + shapeW <= sheetW - bleedIn + 0.001) {
       count++;
       x += cellW;
     }
-    y += rowH;
+    y += rowHeight;
     row++;
   }
   return count;
@@ -419,15 +385,16 @@ export function tessGroupCount(w: number, h: number, sides: number): number {
   const style = getTessStyle(sides);
   if (style === "alternate-col") return w * h;
 
-  // For hex-offset: odd rows may have w or w-1 items depending on offset
-  const { cellW } = effectiveCellDims(sides, 1, 1, 0); // just to get cellW ratio
-  const hOff = polygonHOffset(sides, cellW);
-  // If offset < 50%, odd rows can fit the same number of items as even rows
-  const oddRowItems = hOff < cellW * 0.45 ? w : Math.max(w - 1, 0);
-
+  // For hex-offset and double-lattice: even rows have w items, odd rows may have fewer
   let count = 0;
   for (let row = 0; row < h; row++) {
-    count += row % 2 === 1 ? oddRowItems : w;
+    if (row % 2 === 1) {
+      // Odd rows: may fit one fewer due to horizontal offset
+      // Check if the offset row can still fit w items
+      count += Math.max(w - 1, 0);
+    } else {
+      count += w;
+    }
   }
   return count;
 }
@@ -439,7 +406,8 @@ export function tessGroupDimensions(
   bleedIn: number, sides: number
 ): { width: number; height: number } {
   const style = getTessStyle(sides);
-  const { cellW, cellH } = effectiveCellDims(sides, shapeW, shapeH, bleedIn);
+  const cellW = shapeW + 2 * bleedIn;
+  const cellH = shapeH + 2 * bleedIn;
 
   if (style === "alternate-col") {
     const step = cellW / 2 + bleedIn;
@@ -450,19 +418,19 @@ export function tessGroupDimensions(
   }
 
   // Hex-offset / double-lattice
-  const rowH = polygonRowHeight(sides, cellH, shapeH, bleedIn);
-  const hOff = polygonHOffset(sides, cellW);
-  const oddRowHasFullCols = hOff < cellW * 0.45;
+  const rowFactor = polygonRowHeightFactor(sides);
+  const rowHeight = cellH * rowFactor;
+  const hOffset = cellW * polygonHexOffset(sides);
 
-  // Width: accommodate the widest row
-  const oddCols = oddRowHasFullCols ? w : Math.max(w - 1, 0);
-  const oddRowWidth = (oddCols - 1) * cellW + hOff + shapeW;
+  // Width: even rows span w * cellW, odd rows offset by hOffset and may have w-1
+  // Total width needs to accommodate the widest row
+  const oddRowWidth = (w - 1) * cellW + hOffset + shapeW;
   const evenRowWidth = w * cellW;
   const maxWidth = Math.max(evenRowWidth, oddRowWidth);
 
   return {
     width: maxWidth + 2 * bleedIn,
-    height: (h - 1) * rowH + cellH + 2 * bleedIn,
+    height: (h - 1) * rowHeight + cellH + 2 * bleedIn,
   };
 }
 
@@ -475,7 +443,8 @@ export function tessGroupPositions(
   sides: number
 ): TessPosition[] {
   const style = getTessStyle(sides);
-  const { cellW, cellH } = effectiveCellDims(sides, shapeW, shapeH, bleedIn);
+  const cellW = shapeW + 2 * bleedIn;
+  const cellH = shapeH + 2 * bleedIn;
   const positions: TessPosition[] = [];
 
   if (style === "alternate-col") {
@@ -493,21 +462,19 @@ export function tessGroupPositions(
   }
 
   // Hex-offset / double-lattice
-  const rowH = polygonRowHeight(sides, cellH, shapeH, bleedIn);
-  const hOff = polygonHOffset(sides, cellW);
-  const oddRowHasFullCols = hOff < cellW * 0.45;
+  const rowFactor = polygonRowHeightFactor(sides);
+  const rowHeight = cellH * rowFactor;
+  const hOffset = cellW * polygonHexOffset(sides);
 
   for (let row = 0; row < h; row++) {
     const isOddRow = row % 2 === 1;
-    const offset = isOddRow ? hOff : 0;
-    const colsInRow = isOddRow
-      ? (oddRowHasFullCols ? w : Math.max(w - 1, 0))
-      : w;
+    const offset = isOddRow ? hOffset : 0;
+    const colsInRow = isOddRow ? Math.max(w - 1, 0) : w;
 
     for (let col = 0; col < colsInRow; col++) {
       positions.push({
         x: x0 + bleedIn + col * cellW + offset,
-        y: y0 + bleedIn + row * rowH,
+        y: y0 + bleedIn + row * rowHeight,
         flip: isOddRow,  // odd rows use 180° rotated polygon
       });
     }
@@ -711,7 +678,7 @@ function findBestCustomAllocation(
   const minOuts = 2;
   const minTotal = n * minOuts;
 
-  // All polygons use optimized packing
+  // All polygons use optimized packing now
   const perProjectMax = indices.map((i) => {
     const p = projects[i];
     return Math.max(tessCapacity(sheetW, sheetH, p.stickerWidth, p.stickerHeight, bleedIn, p.sides), minOuts);
@@ -765,7 +732,7 @@ function findBestCustomAllocation(
           stickerWidth: projects[indices[i]].stickerWidth,
           stickerHeight: projects[indices[i]].stickerHeight,
           sides: projects[indices[i]].sides,
-          tessellated: true,
+          tessellated: true, // All polygons use optimized packing
         }));
 
         const packing = findValidCustomPacking(allocInfo, sheetW, sheetH, bleedIn, deadline);
@@ -963,7 +930,7 @@ export function calculateCustom(req: {
     };
   }
 
-  // Capacity: use the smallest project for max capacity estimate
+  // Capacity: use the project with smallest area for max capacity estimate
   const minW = Math.min(...projects.map((p) => p.stickerWidth));
   const minH = Math.min(...projects.map((p) => p.stickerHeight));
   const firstSides = projects[0].sides;
@@ -992,6 +959,7 @@ export function calculateCustom(req: {
   if (projects.length >= 2) {
     const result = findBestCustomTwoPlate(projects, maxSlots, sheetWidth, sheetHeight, bleedIn);
     if (result) {
+      // Calculate sheets saved vs single plate
       if (singlePlateResult) {
         result.sheetsSaved = singlePlateResult.totalSheets - result.totalSheets;
       }
