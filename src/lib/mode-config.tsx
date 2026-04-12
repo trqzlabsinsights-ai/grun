@@ -3,7 +3,6 @@
 
 import React from "react";
 import { Square, LayoutGrid, CircleIcon, Hexagon } from "lucide-react";
-import { PRESET_SHAPES } from "@/lib/packer-custom";
 import type { PackMode, ProjectInput, CircleProjectInput, CustomProjectInput } from "@/lib/types";
 
 // ── Mode Config ────────────────────────────────────────────────────────────
@@ -12,7 +11,7 @@ export const MODE_CONFIG: Record<PackMode, { label: string; icon: React.ReactNod
   "rect-same": { label: "Same Rect", icon: <Square className="w-4 h-4" />, desc: "All stickers same W\u00d7H" },
   "rect-mixed": { label: "Mixed Rect", icon: <LayoutGrid className="w-4 h-4" />, desc: "Each project has own W\u00d7H" },
   "circular": { label: "Circular", icon: <CircleIcon className="w-4 h-4" />, desc: "Circle stickers by diameter" },
-  "custom": { label: "Custom Shape", icon: <Hexagon className="w-4 h-4" />, desc: "\u25B2\u25BC tessellated polygons" },
+  "custom": { label: "Polygon", icon: <Hexagon className="w-4 h-4" />, desc: "Regular polygons by sides" },
 };
 
 // ── Default Projects ───────────────────────────────────────────────────────
@@ -45,7 +44,7 @@ export const DEFAULT_CIRCLE_PROJECTS: CircleProjectInput[] = [
 ];
 
 export const DEFAULT_CUSTOM_PROJECTS: CustomProjectInput[] = [
-  { name: "a", stickerWidth: 3, stickerHeight: 3, shapeName: "triangle", vertices: PRESET_SHAPES.triangle.vertices, quantity: 2000 },
-  { name: "b", stickerWidth: 4, stickerHeight: 4, shapeName: "heart", vertices: PRESET_SHAPES.heart.vertices, quantity: 1000 },
-  { name: "c", stickerWidth: 3, stickerHeight: 4, shapeName: "diamond", vertices: PRESET_SHAPES.diamond.vertices, quantity: 1500 },
+  { name: "a", stickerWidth: 3, stickerHeight: 3, sides: 3, quantity: 2000 },
+  { name: "b", stickerWidth: 4, stickerHeight: 4, sides: 6, quantity: 1000 },
+  { name: "c", stickerWidth: 3, stickerHeight: 3, sides: 4, quantity: 1500 },
 ];

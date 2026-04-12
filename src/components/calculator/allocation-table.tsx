@@ -9,7 +9,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { AllocationEntry, PackMode, IndustryTerms } from "@/lib/types";
-import { PRESET_SHAPES } from "@/lib/packer-custom";
+import { getPolygonIcon, getPolygonName } from "@/lib/packer-custom";
 import { capitalize } from "@/lib/industry-presets";
 
 export function AllocationTable({ allocation, projectColors, projectNames, packMode, terms }: {
@@ -57,8 +57,8 @@ export function AllocationTable({ allocation, projectColors, projectNames, packM
                   <TableCell className="text-slate-300 font-mono text-xs">&empty;{entry.diameter}&quot;</TableCell>
                 ) : packMode === "custom" ? (
                   <TableCell className="text-slate-300 font-mono text-xs">
-                    <span className="mr-1">{PRESET_SHAPES[entry.shapeName || "diamond"]?.icon || "\u25C6"}</span>
-                    {entry.shapeName || "diamond"} ({entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;){entry.tessellated ? " tess" : ""}
+                    <span className="mr-1">{getPolygonIcon(entry.sides || 4)}</span>
+                    {getPolygonName(entry.sides || 4)} ({entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;){entry.tessellated ? " tess" : ""}
                   </TableCell>
                 ) : (
                   <TableCell className="text-slate-300 font-mono text-xs">{entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;</TableCell>

@@ -12,7 +12,7 @@ import {
   Cell,
 } from "recharts";
 import type { AllocationEntry, PackMode } from "@/lib/types";
-import { PRESET_SHAPES } from "@/lib/packer-custom";
+import { getPolygonIcon, getPolygonName } from "@/lib/packer-custom";
 
 export function ProductionBarChart({
   allocation,
@@ -29,9 +29,8 @@ export function ProductionBarChart({
     let sizeStr = "";
     if (packMode === "circular" && entry.diameter) {
       sizeStr = `\u2300${entry.diameter}"`;
-    } else if (packMode === "custom" && entry.shapeName) {
-      const preset = PRESET_SHAPES[entry.shapeName];
-      sizeStr = preset ? `${preset.icon}` : entry.shapeName;
+    } else if (packMode === "custom" && entry.sides) {
+      sizeStr = `${getPolygonIcon(entry.sides)} ${getPolygonName(entry.sides)}`;
     } else {
       sizeStr = `${entry.stickerWidth}"\u00d7${entry.stickerHeight}"`;
     }

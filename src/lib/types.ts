@@ -60,8 +60,7 @@ export interface CustomProjectInput {
   quantity: number;
   stickerWidth: number;
   stickerHeight: number;
-  shapeName: string;
-  vertices: { x: number; y: number }[];
+  sides: number;  // number of sides for regular polygon (3=triangle, 4=diamond, 5=pentagon, 6=hexagon, etc.)
 }
 
 export interface GroupShape {
@@ -90,7 +89,7 @@ export interface PlacedGroup {
   diameter?: number;
   circles?: { cx: number; cy: number }[];
   bleedIn?: number;
-  shapeName?: string;
+  sides?: number;       // number of polygon sides
   vertices?: { x: number; y: number }[];
   flipVertices?: { x: number; y: number }[];
   tessellated?: boolean;
@@ -108,7 +107,7 @@ export interface AllocationEntry {
   stickerWidth?: number;
   stickerHeight?: number;
   diameter?: number;
-  shapeName?: string;
+  sides?: number;       // number of polygon sides
   tessellated?: boolean;
 }
 

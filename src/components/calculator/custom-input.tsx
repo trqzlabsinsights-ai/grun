@@ -4,17 +4,10 @@ import React, { useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Plus, Trash2 } from "lucide-react";
 import type { CustomProjectInput, IndustryTerms } from "@/lib/types";
 import { PROJECT_COLORS } from "@/lib/industry-presets";
-import { PRESET_SHAPES } from "@/lib/packer-custom";
+import { getPolygonIcon, getPolygonName } from "@/lib/packer-custom";
 
 interface CustomInputProps {
   projects: CustomProjectInput[];
@@ -27,8 +20,7 @@ export function CustomInput({
   setProjects,
   terms,
 }: CustomInputProps) {
-  // Unused terms reference for future extensions (e.g., labels)
-  void terms;
+  void terms; // reserved for future use
 
   const addProject = useCallback(() => {
     const nextLetter = String.fromCharCode(97 + projects.length);
@@ -38,8 +30,7 @@ export function CustomInput({
         name: nextLetter,
         stickerWidth: 3,
         stickerHeight: 3,
-        shapeName: "triangle",
-        vertices: PRESET_SHAPES.triangle.vertices,
+        sides: 4, // default to diamond
         quantity: 0,
       },
     ]);
@@ -58,24 +49,7 @@ export function CustomInput({
         prev.map((p, i) => {
           if (i !== index) return p;
           if (field === "name") return { ...p, name: value };
-          if (field === "shapeName") {
-            const preset = PRESET_SHAPES[value];
-            return { ...p, shapeName: value, vertices: preset ? preset.vertices : p.vertices };
-          }
           return { ...p, [field]: parseFloat(value) || 0 };
-        })
-      );
-    },
-    [setProjects]
-  );
-
-  const updateCustomShape = useCallback(
-    (index: number, shapeName: string) => {
-      setProjects((prev) =>
-        prev.map((p, i) => {
-          if (i !== index) return p;
-          const preset = PRESET_SHAPES[shapeName];
-          return { ...p, shapeName, vertices: preset ? preset.vertices : p.vertices };
         })
       );
     },
@@ -86,7 +60,7 @@ export function CustomInput({
     <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <Label className="text-sm font-semibold text-slate-300">
-          Custom Shape Projects
+          Polygon Projects
         </Label>
         <Button
           variant="outline"
@@ -98,11 +72,12 @@ export function CustomInput({
         </Button>
       </div>
       <div className="overflow-x-auto">
-        <div className="space-y-2 min-w-[750px]">
-          <div className="grid grid-cols-[32px_60px_1fr_1fr_1fr_36px] gap-2 text-xs text-slate-500 font-medium px-1">
+        <div className="space-y-2 min-w-[700px]">
+          <div className="grid grid-cols-[32px_60px_1fr_1fr_80px_1fr_36px] gap-2 text-xs text-slate-500 font-medium px-1">
             <span></span>
             <span>NAME</span>
             <span>W&times;H (in)</span>
+            <span>SIDES</span>
             <span>SHAPE</span>
             <span>QTY</span>
             <span></span>
@@ -110,13 +85,13 @@ export function CustomInput({
           {projects.map((project, idx) => (
             <div
               key={idx}
-              className="grid grid-cols-[32px_60px_1fr_1fr_1fr_36px] gap-2 items-center"
+              className="grid grid-cols-[32px_60px_1fr_1fr_80px_1fr_36px] gap-2 items-center"
             >
               <div
                 className="w-4 h-4 shrink-0 mx-auto flex items-center justify-center text-xs"
                 style={{ color: PROJECT_COLORS[idx % PROJECT_COLORS.length] }}
               >
-                {PRESET_SHAPES[project.shapeName]?.icon || "\u25C6"}
+                {getPolygonIcon(project.sides || 4)}
               </div>
               <Input
                 value={project.name}
@@ -145,26 +120,18 @@ export function CustomInput({
                   placeholder="H"
                 />
               </div>
-              <Select
-                value={project.shapeName}
-                onValueChange={(val) => updateCustomShape(idx, val)}
-              >
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-100 h-8 text-sm">
-                  <SelectValue placeholder="Shape" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
-                  {Object.entries(PRESET_SHAPES).map(([key, shape]) => (
-                    <SelectItem
-                      key={key}
-                      value={key}
-                      className="text-slate-200 focus:bg-slate-700 focus:text-slate-100"
-                    >
-                      <span className="mr-1.5">{shape.icon}</span>
-                      {shape.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                type="number"
+                min="3"
+                max="20"
+                value={project.sides || ""}
+                onChange={(e) => updateProject(idx, "sides", e.target.value)}
+                className="bg-slate-800 border-slate-700 text-slate-100 h-8 text-sm"
+                placeholder="Sides"
+              />
+              <div className="text-xs text-slate-400 truncate" title={getPolygonName(project.sides || 4)}>
+                {getPolygonName(project.sides || 4)}
+              </div>
               <Input
                 type="number"
                 min="0"
@@ -186,6 +153,9 @@ export function CustomInput({
           ))}
         </div>
       </div>
+      <p className="text-xs text-slate-500">
+        3=Triangle ▲ &middot; 4=Diamond ◆ &middot; 5=Pentagon &middot; 6=Hexagon ⬡ &middot; 8=Octagon &middot; Tessellation: 3, 4, 6 sides
+      </p>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import type { PlateResult, PackMode, IndustryTerms } from "@/lib/types";
 import { INDUSTRY_PRESETS } from "@/lib/industry-presets";
-import { PRESET_SHAPES } from "@/lib/packer-custom";
+import { getPolygonIcon, getPolygonName } from "@/lib/packer-custom";
 import { RegMark } from "./reg-mark";
 
 export function SVGPlateVisualization({
@@ -82,9 +82,8 @@ export function SVGPlateVisualization({
             let sizeLabel = "";
             if (itemType === "circle" && group.diameter) {
               sizeLabel = `\u2300${group.diameter}"`;
-            } else if (itemType === "custom" && group.shapeName) {
-              const preset = PRESET_SHAPES[group.shapeName];
-              sizeLabel = preset ? `${preset.icon} ${group.stickerWidth}"\u00d7${group.stickerHeight}"` : `${group.shapeName}`;
+            } else if (itemType === "custom" && group.sides) {
+              sizeLabel = `${getPolygonIcon(group.sides)} ${getPolygonName(group.sides)} ${group.stickerWidth}"\u00d7${group.stickerHeight}"`;
             } else {
               const sw = group.stickerWidth || 0;
               const sh = group.stickerHeight || 0;

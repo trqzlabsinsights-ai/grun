@@ -182,8 +182,7 @@ export async function POST(request: Request) {
               quantity: p.quantity,
               stickerWidth: p.stickerWidth,
               stickerHeight: p.stickerHeight,
-              shapeName: p.shapeName || "diamond",
-              vertices: p.vertices || [],
+              sides: p.sides || 4,
             })),
           });
         } catch (calcError) {
