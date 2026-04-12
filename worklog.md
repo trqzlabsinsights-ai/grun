@@ -32,3 +32,33 @@ Stage Summary:
 - Global polygon type selector ensures no mixing on sheets
 - Optimized tessellation per polygon type maximizes space utilization
 - Material yield properly calculated using actual polygon area
+---
+Task ID: 1
+Agent: Main
+Task: Implement mixed-size same-shape gang run packing for custom/polygon mode
+
+Work Log:
+- Read and analyzed current packer-custom.ts (per-project dedicated sheets approach)
+- Read rect-mixed calculator (gang-run-calculator-v2.ts) as reference for MaxRect packing
+- Read SVG visualization, allocation table, custom-input, route.ts, and types.ts
+- Completely rewrote packer-custom.ts with:
+  - New block-based approach: each project occupies a rectangular block on the sheet
+  - Polygon tessellation within each block using optimized patterns
+  - MaxRect 2D bin packing to place multiple blocks on shared sheets
+  - Run-length-based allocation search (searches L=1 upward for minimum feasible)
+  - Boosted allocation variants (+1, +2 extra outs per project)
+  - Single-project special case (fills entire sheet)
+  - tessBlockPositions() for generating visualization positions within placed blocks
+  - tessGridDimensions() helper for display
+  - Clean buildPlateResult() using actual tessellation counts
+- Updated SVG visualization: removed per-project separate-sheet rendering, unified to single shared-sheet view with "Polygon Gang Run" title
+- Updated custom-input.tsx: changed description text from "dedicated sheets" to "gang run"
+- Updated allocation table: removed "Sheets" column for custom mode (all projects share same run length)
+- Fixed allocation search bug: was clamping outs to perProjectMax (making L=1 appear feasible when insufficient)
+- Verified with comprehensive test suite: pentagons, hexagons, triangles, octagons, single-project
+
+Stage Summary:
+- Mixed-size same-shape gang run packing is fully functional
+- Test results: 3 pentagon projects (2"/3"/4") → 5 sheets with 0% overage, 44.1% yield
+- Algorithm correctly mixes different sizes on same sheet via MaxRect bin packing
+- Different polygon types are NEVER mixed on one sheet (gang run constraint satisfied)

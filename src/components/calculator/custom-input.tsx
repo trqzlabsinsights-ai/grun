@@ -104,7 +104,7 @@ export function CustomInput({
           ))}
         </div>
         <p className="text-xs text-slate-500">
-          All projects use the same polygon shape. Each project gets its own dedicated sheets — no mixing on a sheet.
+          All projects use the same polygon shape. Different-sized projects share sheets (gang run) — no mixing different polygon types.
         </p>
       </div>
 
@@ -191,7 +191,7 @@ export function CustomInput({
         </div>
       </div>
       <p className="text-xs text-slate-500">
-        {selectedOption.icon} {selectedOption.label} tessellation — each project runs on its own dedicated sheets to maximize space utilization.
+        {selectedOption.icon} {selectedOption.label} gang run — all projects share the same sheet with optimized tessellation.
       </p>
     </div>
   );
