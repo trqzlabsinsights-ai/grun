@@ -60,7 +60,7 @@ export interface CustomProjectInput {
   quantity: number;
   stickerWidth: number;
   stickerHeight: number;
-  sides: number;  // number of sides for regular polygon (3=triangle, 4=diamond, 5=pentagon, 6=hexagon, etc.)
+  sides?: number;  // optional per-project sides (overridden by global selector)
 }
 
 export interface GroupShape {
@@ -94,12 +94,14 @@ export interface PlacedGroup {
   flipVertices?: { x: number; y: number }[];
   tessellated?: boolean;
   tessPositions?: TessPosition[];
+  sheets?: number;       // number of sheets dedicated to this project (custom mode)
 }
 
 export interface AllocationEntry {
   name: string;
   quantity: number;
   outs: number;
+  sheets?: number;       // number of sheets dedicated to this project (custom mode)
   produced: number;
   overage: number;
   overagePct: number;

@@ -35,6 +35,7 @@ export function useCalculatorState() {
   const [rectMixedProjects, setRectMixedProjects] = useState<ProjectInput[]>(DEFAULT_RECT_MIXED_PROJECTS);
   const [circleProjects, setCircleProjects] = useState<CircleProjectInput[]>(DEFAULT_CIRCLE_PROJECTS);
   const [customProjects, setCustomProjects] = useState<CustomProjectInput[]>(DEFAULT_CUSTOM_PROJECTS);
+  const [customSides, setCustomSides] = useState(5); // default to Pentagon
 
   const [inputOpen, setInputOpen] = useState(true);
 
@@ -91,6 +92,7 @@ export function useCalculatorState() {
           break;
         case "custom":
           body.projects = customProjects.filter((p) => p.quantity > 0 && p.stickerWidth > 0 && p.stickerHeight > 0);
+          body.sides = customSides;
           break;
       }
 
@@ -115,7 +117,7 @@ export function useCalculatorState() {
     } finally {
       setLoading(false);
     }
-  }, [packMode, sheetWidth, sheetHeight, bleed, rectSameW, rectSameH, rectSameProjects, rectMixedProjects, circleProjects, customProjects]);
+  }, [packMode, sheetWidth, sheetHeight, bleed, rectSameW, rectSameH, rectSameProjects, rectMixedProjects, circleProjects, customProjects, customSides]);
 
   // ── Project names (for color mapping) ──────────────────────────────────
 
@@ -166,6 +168,8 @@ export function useCalculatorState() {
     setCircleProjects,
     customProjects,
     setCustomProjects,
+    customSides,
+    setCustomSides,
     // UI state
     inputOpen,
     setInputOpen,

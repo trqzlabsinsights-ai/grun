@@ -61,6 +61,8 @@ interface InputPanelProps {
   // custom
   customProjects: CustomProjectInput[];
   setCustomProjects: React.Dispatch<React.SetStateAction<CustomProjectInput[]>>;
+  customSides: number;
+  setCustomSides: (sides: number) => void;
 }
 
 export function InputPanel({
@@ -88,6 +90,8 @@ export function InputPanel({
   setCircleProjects,
   customProjects,
   setCustomProjects,
+  customSides,
+  setCustomSides,
 }: InputPanelProps) {
   const modeDescription = terms ? MODE_CONFIG[packMode]?.desc || "" : "";
 
@@ -167,6 +171,8 @@ export function InputPanel({
                 projects={customProjects}
                 setProjects={setCustomProjects}
                 terms={terms}
+                sides={customSides}
+                setSides={setCustomSides}
               />
             )}
 

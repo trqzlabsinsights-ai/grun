@@ -56,6 +56,8 @@ export default function GangRunCalculator() {
           setCircleProjects={state.setCircleProjects}
           customProjects={state.customProjects}
           setCustomProjects={state.setCustomProjects}
+          customSides={state.customSides}
+          setCustomSides={state.setCustomSides}
         />
 
         {/* Results */}

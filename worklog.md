@@ -1,25 +1,34 @@
 ---
 Task ID: 1
 Agent: Main
-Task: Architectural refactor — break monolithic page.tsx into granular, industry-specific and mode-specific files
+Task: Rewrite polygon custom mode packer with per-project sheets, no mixing, optimized tessellation
 
 Work Log:
-- Read and analyzed current page.tsx (670 lines, already partially refactored from 1650+)
-- Identified remaining inline sections to extract: state hook, header, industry selector, mode selector, input panel, results section, error modal
-- Created `src/hooks/use-calculator-state.ts` (185 lines) — all state management + calculate logic
-- Created `src/components/calculator/calculator-header.tsx` (20 lines) — sticky header
-- Created `src/components/calculator/industry-selector.tsx` (52 lines) — industry dropdown
-- Created `src/components/calculator/mode-selector.tsx` (48 lines) — packing mode buttons
-- Created `src/components/calculator/input-panel.tsx` (186 lines) — collapsible input form
-- Created `src/components/calculator/results-section.tsx` (303 lines) — all results display + error modal
-- Fixed circular type reference in `src/lib/types.ts` — defined `IndustryTerms` as explicit interface
-- Fixed type mismatch in `input-panel.tsx` — setRectSameW/H now uses `React.Dispatch<React.SetStateAction<number>>`
-- Replaced inline `ErrorModalInline` with imported `ErrorModal` component
-- Refactored `page.tsx` from 670 lines down to 81 lines — now a slim orchestrator
+- Rewrote packer-custom.ts with per-project independent sheet allocation
+- Each project gets dedicated sheets (no mixing different polygon types on one sheet)
+- Added global `sides` parameter instead of per-project sides
+- Implemented optimized tessellation per polygon type:
+  - Triangle (3): alternate-col ▲▼ columns, 60 outs/sheet on 24x16.5
+  - Diamond (4): honeycomb offset, 39 outs/sheet
+  - Pentagon (5): double-lattice with 180° rotation, 35 outs/sheet
+  - Hexagon (6): honeycomb perfect tessellation, 33 outs/sheet
+  - Heptagon (7): double-lattice, 40 outs/sheet
+  - Octagon (8): double-lattice, 33 outs/sheet
+  - 9+: double-lattice approaching circle density
+- Updated custom-input.tsx with global polygon type selector (button group)
+- Updated types.ts: added `sheets` to AllocationEntry and PlacedGroup, made sides optional in CustomProjectInput
+- Updated API route to accept top-level `sides` parameter for custom mode
+- Updated use-calculator-state.ts with customSides state
+- Updated input-panel.tsx to pass customSides/setCustomSides
+- Updated page.tsx to pass customSides through
+- Updated allocation-table.tsx with Sheets column for custom mode
+- Updated svg-plate-visualization.tsx with per-project SVG rendering for custom mode
+- Updated mode-config.tsx to remove sides from default custom projects
+- Fixed multiple JSX syntax errors in SVG visualization
+- All TypeScript compilation passes, lint clean
 
 Stage Summary:
-- page.tsx: 1650+ → 670 → 81 lines (95% reduction from original)
-- All TypeScript errors in src/components, src/hooks, src/app resolved
-- ESLint passes clean
-- Dev server loads page successfully (HTTP 200)
-- File breakdown: 1 hook (185 lines), 15 calculator components (1728 lines total), 3 lib configs (402 lines), 1 slim page (81 lines)
+- Polygon custom mode now separates each project onto its own sheets
+- Global polygon type selector ensures no mixing on sheets
+- Optimized tessellation per polygon type maximizes space utilization
+- Material yield properly calculated using actual polygon area

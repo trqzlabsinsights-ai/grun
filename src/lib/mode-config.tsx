@@ -44,7 +44,7 @@ export const DEFAULT_CIRCLE_PROJECTS: CircleProjectInput[] = [
 ];
 
 export const DEFAULT_CUSTOM_PROJECTS: CustomProjectInput[] = [
-  { name: "a", stickerWidth: 3, stickerHeight: 3, sides: 3, quantity: 2000 },
-  { name: "b", stickerWidth: 4, stickerHeight: 4, sides: 6, quantity: 1000 },
-  { name: "c", stickerWidth: 3, stickerHeight: 3, sides: 4, quantity: 1500 },
+  { name: "a", stickerWidth: 3, stickerHeight: 3, quantity: 2000 },
+  { name: "b", stickerWidth: 4, stickerHeight: 4, quantity: 1000 },
+  { name: "c", stickerWidth: 3, stickerHeight: 3, quantity: 1500 },
 ];

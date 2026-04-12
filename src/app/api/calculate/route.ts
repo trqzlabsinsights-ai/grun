@@ -23,6 +23,8 @@ interface CalculateRequest {
   stickerHeight?: number;
   // rect-mixed & custom
   projects?: any[];
+  // custom mode
+  sides?: number;
 }
 
 /** Build plate suggestions from single/two plate results */
@@ -177,12 +179,12 @@ export async function POST(request: Request) {
             sheetWidth: body.sheetWidth,
             sheetHeight: body.sheetHeight,
             bleed: body.bleed,
+            sides: body.sides || 4,
             projects: (body.projects || []).map((p: any) => ({
               name: p.name,
               quantity: p.quantity,
               stickerWidth: p.stickerWidth,
               stickerHeight: p.stickerHeight,
-              sides: p.sides || 4,
             })),
           });
         } catch (calcError) {

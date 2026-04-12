@@ -33,7 +33,10 @@ export function AllocationTable({ allocation, projectColors, projectNames, packM
               <TableHead className="text-slate-400">{capitalize(terms.sticker)} Size</TableHead>
             )}
             <TableHead className="text-slate-400 text-right">Order</TableHead>
-            <TableHead className="text-slate-400 text-right">{capitalize(terms.outs)}</TableHead>
+            <TableHead className="text-slate-400 text-right">{capitalize(terms.outs)}/{capitalize(terms.sheet)}</TableHead>
+            {packMode === "custom" && (
+              <TableHead className="text-slate-400 text-right">{capitalize(terms.sheet)}s</TableHead>
+            )}
             <TableHead className="text-slate-400 text-right">Group</TableHead>
             <TableHead className="text-slate-400 text-right">Produced</TableHead>
             <TableHead className="text-slate-400 text-right">{capitalize(terms.overage)}</TableHead>
@@ -58,13 +61,16 @@ export function AllocationTable({ allocation, projectColors, projectNames, packM
                 ) : packMode === "custom" ? (
                   <TableCell className="text-slate-300 font-mono text-xs">
                     <span className="mr-1">{getPolygonIcon(entry.sides || 4)}</span>
-                    {getPolygonName(entry.sides || 4)} ({entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;){entry.tessellated ? " tess" : ""}
+                    {getPolygonName(entry.sides || 4)} ({entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;)
                   </TableCell>
                 ) : (
                   <TableCell className="text-slate-300 font-mono text-xs">{entry.stickerWidth}&quot;&times;{entry.stickerHeight}&quot;</TableCell>
                 )}
                 <TableCell className="text-right text-slate-300">{entry.quantity.toLocaleString()}</TableCell>
                 <TableCell className="text-right text-cyan-400 font-semibold">{entry.outs}</TableCell>
+                {packMode === "custom" && (
+                  <TableCell className="text-right text-amber-400 font-semibold">{entry.sheets || Math.ceil(entry.produced / entry.outs)}</TableCell>
+                )}
                 <TableCell className="text-right text-slate-400 font-mono text-xs">{gs ? `${gs.w}\u00d7${gs.h}` : "\u2014"}</TableCell>
                 <TableCell className="text-right text-slate-300">{entry.produced.toLocaleString()}</TableCell>
                 <TableCell className="text-right">
