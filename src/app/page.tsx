@@ -3,20 +3,17 @@
 import { useCalculatorState } from "@/hooks/use-calculator-state";
 import { CalculatorHeader } from "@/components/calculator/calculator-header";
 import { IndustrySelector } from "@/components/calculator/industry-selector";
-import { ModeSelector } from "@/components/calculator/mode-selector";
 import { InputPanel } from "@/components/calculator/input-panel";
 import { ResultsSection } from "@/components/calculator/results-section";
-
-// ── Main Page Component ────────────────────────────────────────────────────
 
 export default function GangRunCalculator() {
   const state = useCalculatorState();
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-gray-50 text-gray-900">
       <CalculatorHeader preset={state.currentPreset} />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-5">
         {/* Industry Selector */}
         <IndustrySelector
           industry={state.industry}
@@ -24,15 +21,8 @@ export default function GangRunCalculator() {
           currentPreset={state.currentPreset}
         />
 
-        {/* Mode Selector */}
-        <ModeSelector
-          packMode={state.packMode}
-          onModeChange={state.handleModeChange}
-        />
-
         {/* Input Panel */}
         <InputPanel
-          packMode={state.packMode}
           terms={state.terms}
           sheetWidth={state.sheetWidth}
           setSheetWidth={state.setSheetWidth}
@@ -44,26 +34,13 @@ export default function GangRunCalculator() {
           setInputOpen={state.setInputOpen}
           loading={state.loading}
           onCalculate={state.handleCalculate}
-          rectSameProjects={state.rectSameProjects}
-          setRectSameProjects={state.setRectSameProjects}
-          rectSameW={state.rectSameW}
-          setRectSameW={state.setRectSameW}
-          rectSameH={state.rectSameH}
-          setRectSameH={state.setRectSameH}
-          rectMixedProjects={state.rectMixedProjects}
-          setRectMixedProjects={state.setRectMixedProjects}
-          circleProjects={state.circleProjects}
-          setCircleProjects={state.setCircleProjects}
-          customProjects={state.customProjects}
-          setCustomProjects={state.setCustomProjects}
-          customSides={state.customSides}
-          setCustomSides={state.setCustomSides}
+          projects={state.projects}
+          setProjects={state.setProjects}
         />
 
         {/* Results */}
         <ResultsSection
           result={state.result}
-          packMode={state.packMode}
           terms={state.terms}
           sheetWidth={state.sheetWidth}
           sheetHeight={state.sheetHeight}

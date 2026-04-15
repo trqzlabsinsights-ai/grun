@@ -14,24 +14,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Z.ai Code Scaffold - AI-Powered Development",
-  description: "Modern Next.js scaffold optimized for AI-powered development with Z.ai. Built with TypeScript, Tailwind CSS, and shadcn/ui.",
-  keywords: ["Z.ai", "Next.js", "TypeScript", "Tailwind CSS", "shadcn/ui", "AI development", "React"],
-  authors: [{ name: "Z.ai Team" }],
+  title: "GangRun — Plate Optimization Calculator",
+  description: "Optimize your gang run plate layout with MaxRect 2D packing. Calculate the best outs, run length, and material yield for your printing projects.",
+  keywords: ["gang run", "plate optimization", "printing calculator", "MaxRect", "2D packing"],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
-  },
-  openGraph: {
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
-    url: "https://chat.z.ai",
-    siteName: "Z.ai",
-    type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Z.ai Code Scaffold",
-    description: "AI-powered development with modern React stack",
+    icon: "/logo.svg",
   },
 };
 
@@ -41,17 +28,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){var r=['bis_skin_checked','bis_register','bis_use','data-bis-config','data-dynamic-id'];var o=new MutationObserver(function(m){m.forEach(function(m){if(m.type==='attributes'){r.forEach(function(a){if(m.attributeName===a){m.target.removeAttribute(a)}})}})});o.observe(document.documentElement,{attributes:true,subtree:true,attributeFilter:r});document.querySelectorAll('['+r.join('],[')+']').forEach(function(e){r.forEach(function(a){e.removeAttribute(a)})})})();`,
-          }}
-        />
-      </head>
+    <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
-        suppressHydrationWarning
       >
         {children}
         <Toaster />
