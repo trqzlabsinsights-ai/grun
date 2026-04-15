@@ -10,13 +10,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Layers, LayoutGrid, AlertTriangle, Info } from "lucide-react";
 import type {
-  PackMode,
   CalculateResponse,
   PlateSuggestion,
   IndustryTerms,
 } from "@/lib/types";
 import { PROJECT_COLORS, capitalize } from "@/lib/industry-presets";
-import { MODE_CONFIG } from "@/lib/mode-config";
 import { KPICard } from "./kpi-card";
 import { AllocationTable } from "./allocation-table";
 import { SVGPlateVisualization } from "./svg-plate-visualization";
@@ -25,7 +23,6 @@ import { ErrorModal } from "./error-modal";
 
 interface ResultsSectionProps {
   result: CalculateResponse | null;
-  packMode: PackMode;
   terms: IndustryTerms;
   sheetWidth: number;
   sheetHeight: number;
@@ -42,7 +39,6 @@ interface ResultsSectionProps {
 
 export function ResultsSection({
   result,
-  packMode,
   terms,
   sheetWidth,
   sheetHeight,
@@ -61,9 +57,7 @@ export function ResultsSection({
       {/* Error Modal */}
       <ErrorModal
         open={errorModalOpen}
-        onOpenChange={(open) => {
-          setErrorModalOpen(open);
-        }}
+        onOpenChange={(open) => setErrorModalOpen(open)}
         error={error}
         plateSuggestions={plateSuggestions}
         terms={terms}
@@ -73,29 +67,29 @@ export function ResultsSection({
       {result && (
         <>
           {/* Sheet Capacity */}
-          <Card className="bg-slate-900 border-slate-800">
+          <Card className="bg-white border-gray-200 shadow-sm">
             <CardHeader>
-              <CardTitle className="text-slate-100 flex items-center gap-2">
-                <LayoutGrid className="w-5 h-5 text-emerald-400" />
+              <CardTitle className="text-gray-900 flex items-center gap-2">
+                <LayoutGrid className="w-5 h-5 text-emerald-600" />
                 {capitalize(terms.sheet)} Capacity
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <KPICard label={`${capitalize(terms.sheet)} Size`} value={`${sheetWidth}" \u00d7 ${sheetHeight}"`} accent="text-emerald-400" />
-                <KPICard label="Mode" value={MODE_CONFIG[packMode].label} sub={MODE_CONFIG[packMode].desc} accent="text-emerald-400" />
-                <KPICard label={terms.bleed !== "\u2014" ? `${capitalize(terms.bleed)} Per Side` : "Bleed"} value={terms.bleed !== "\u2014" ? `${bleed}mm` : "0mm"} sub={bleed > 0 ? `${bleedInches.toFixed(4)}"` : undefined} accent="text-amber-400" />
-                <KPICard label="Algorithm" value={packMode === "circular" ? "HexPack" : "MaxRect"} sub={packMode === "circular" ? "Hexagonal packing" : "2D bin packing"} accent="text-slate-300" />
+                <KPICard label={`${capitalize(terms.sheet)} Size`} value={`${sheetWidth}" \u00d7 ${sheetHeight}"`} accent="text-emerald-600" />
+                <KPICard label="Mode" value="Mixed Rect" sub="Per-project dimensions" accent="text-blue-600" />
+                <KPICard label={terms.bleed !== "\u2014" ? `${capitalize(terms.bleed)} Per Side` : "Bleed"} value={terms.bleed !== "\u2014" ? `${bleed}mm` : "0mm"} sub={bleed > 0 ? `${bleedInches.toFixed(4)}"` : undefined} accent="text-amber-600" />
+                <KPICard label="Algorithm" value="MaxRect" sub="2D bin packing" accent="text-gray-600" />
               </div>
             </CardContent>
           </Card>
 
           {/* Plate Suggestions */}
           {plateSuggestions.length > 0 && (
-            <Card className="bg-slate-900 border-slate-800">
+            <Card className="bg-white border-gray-200 shadow-sm">
               <CardHeader>
-                <CardTitle className="text-slate-100 flex items-center gap-2">
-                  <Layers className="w-5 h-5 text-amber-400" />
+                <CardTitle className="text-gray-900 flex items-center gap-2">
+                  <Layers className="w-5 h-5 text-amber-600" />
                   {capitalize(terms.plate)} Suggestions
                 </CardTitle>
               </CardHeader>
@@ -106,21 +100,21 @@ export function ResultsSection({
                       key={s.plateCount}
                       className={`rounded-lg px-4 py-3 text-center border ${
                         s.feasible
-                          ? "bg-emerald-950/30 border-emerald-800/40"
-                          : "bg-slate-800/30 border-slate-700/30"
+                          ? "bg-emerald-50 border-emerald-200"
+                          : "bg-gray-50 border-gray-200"
                       }`}
                     >
-                      <div className={`text-2xl font-bold ${s.feasible ? "text-emerald-400" : "text-slate-600"}`}>
+                      <div className={`text-2xl font-bold ${s.feasible ? "text-emerald-600" : "text-gray-300"}`}>
                         {s.plateCount}
                       </div>
-                      <div className={`text-xs ${s.feasible ? "text-emerald-300" : "text-slate-500"}`}>
+                      <div className={`text-xs ${s.feasible ? "text-emerald-600" : "text-gray-400"}`}>
                         {s.plateCount === 1 ? terms.plate : `${terms.plate}s`}
                       </div>
-                      <div className={`text-xs mt-1 ${s.feasible ? "text-emerald-400" : "text-slate-500"}`}>
+                      <div className={`text-xs mt-1 ${s.feasible ? "text-emerald-700" : "text-gray-400"}`}>
                         {s.feasible ? `${s.totalSheets.toLocaleString()} ${terms.sheet}s` : "Cannot fit"}
                       </div>
                       {s.feasible && s.description && (
-                        <div className="text-[10px] text-slate-500 mt-1">{s.description}</div>
+                        <div className="text-[10px] text-gray-400 mt-1">{s.description}</div>
                       )}
                     </div>
                   ))}
@@ -131,8 +125,8 @@ export function ResultsSection({
 
           {/* Results Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="bg-slate-800 border border-slate-700">
-              <TabsTrigger value="single" className="data-[state=active]:bg-cyan-600 data-[state=active]:text-white">
+            <TabsList className="bg-gray-100 border border-gray-200">
+              <TabsTrigger value="single" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white">
                 <Layers className="w-4 h-4 mr-1" /> Single {capitalize(terms.plate)}
               </TabsTrigger>
               <TabsTrigger value="two" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
@@ -145,20 +139,20 @@ export function ResultsSection({
               {result.singlePlateResult ? (
                 <>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <KPICard label="Run Length" value={result.singlePlateResult.runLength.toLocaleString()} accent="text-cyan-400" />
-                    <KPICard label={`Total ${capitalize(terms.sheet)}s`} value={result.singlePlateResult.totalSheets.toLocaleString()} accent="text-cyan-400" />
-                    <KPICard label="Total Produced" value={result.singlePlateResult.totalProduced.toLocaleString()} sub={`${capitalize(terms.overage)}: +${result.singlePlateResult.totalOverage.toLocaleString()}`} accent="text-slate-200" />
-                    <KPICard label="Material Yield" value={`${result.singlePlateResult.materialYield.toFixed(1)}%`} accent="text-emerald-400" />
+                    <KPICard label="Run Length" value={result.singlePlateResult.runLength.toLocaleString()} accent="text-blue-600" />
+                    <KPICard label={`Total ${capitalize(terms.sheet)}s`} value={result.singlePlateResult.totalSheets.toLocaleString()} accent="text-blue-600" />
+                    <KPICard label="Total Produced" value={result.singlePlateResult.totalProduced.toLocaleString()} sub={`${capitalize(terms.overage)}: +${result.singlePlateResult.totalOverage.toLocaleString()}`} accent="text-gray-700" />
+                    <KPICard label="Material Yield" value={`${result.singlePlateResult.materialYield.toFixed(1)}%`} accent="text-emerald-600" />
                   </div>
 
-                  <Card className="bg-slate-900 border-slate-800">
-                    <CardHeader><CardTitle className="text-slate-100 text-base">Slot Allocation</CardTitle></CardHeader>
+                  <Card className="bg-white border-gray-200 shadow-sm">
+                    <CardHeader><CardTitle className="text-gray-900 text-base">Slot Allocation</CardTitle></CardHeader>
                     <CardContent>
-                      <AllocationTable allocation={result.singlePlateResult.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} packMode={packMode} terms={terms} />
+                      <AllocationTable allocation={result.singlePlateResult.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} terms={terms} />
                     </CardContent>
                   </Card>
 
-                  <Card className="bg-slate-900 border-slate-800">
+                  <Card className="bg-white border-gray-200 shadow-sm">
                     <CardContent className="pt-6">
                       <SVGPlateVisualization
                         plateResult={result.singlePlateResult}
@@ -169,7 +163,6 @@ export function ResultsSection({
                         projectNames={projectNames}
                         title={`Single ${capitalize(terms.plate)} Layout`}
                         plateLabel="single"
-                        packMode={packMode}
                         terms={terms}
                         bleedMm={bleed}
                       />
@@ -177,9 +170,9 @@ export function ResultsSection({
                   </Card>
                 </>
               ) : (
-                <Card className="bg-slate-900 border-slate-800">
-                  <CardContent className="py-8 text-center text-slate-400">
-                    <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
+                <Card className="bg-white border-gray-200 shadow-sm">
+                  <CardContent className="py-8 text-center text-gray-500">
+                    <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-500" />
                     <p>Cannot fit all projects on one {terms.plate} with group constraints (min 2 {terms.outs} each).</p>
                   </CardContent>
                 </Card>
@@ -191,22 +184,22 @@ export function ResultsSection({
               {result.twoPlateResult ? (
                 <>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <KPICard label={`Total ${capitalize(terms.sheet)}s`} value={result.twoPlateResult.totalSheets.toLocaleString()} sub={`P1: ${result.twoPlateResult.plate1.runLength.toLocaleString()} | P2: ${result.twoPlateResult.plate2.runLength.toLocaleString()}`} accent="text-amber-400" />
-                    <KPICard label="Total Produced" value={result.twoPlateResult.totalProduced.toLocaleString()} sub={`${capitalize(terms.overage)}: +${result.twoPlateResult.totalOverage.toLocaleString()}`} accent="text-slate-200" />
-                    <KPICard label="Material Yield" value={`${result.twoPlateResult.materialYield.toFixed(1)}%`} accent="text-emerald-400" />
-                    <KPICard label={`${capitalize(terms.sheet)}s Saved`} value={result.twoPlateResult.sheetsSaved > 0 ? `-${result.twoPlateResult.sheetsSaved}` : `+${Math.abs(result.twoPlateResult.sheetsSaved)}`} sub={result.twoPlateResult.sheetsSaved > 0 ? `vs single ${terms.plate}` : `more than single`} accent={result.twoPlateResult.sheetsSaved > 0 ? "text-emerald-400" : "text-red-400"} />
+                    <KPICard label={`Total ${capitalize(terms.sheet)}s`} value={result.twoPlateResult.totalSheets.toLocaleString()} sub={`P1: ${result.twoPlateResult.plate1.runLength.toLocaleString()} | P2: ${result.twoPlateResult.plate2.runLength.toLocaleString()}`} accent="text-amber-600" />
+                    <KPICard label="Total Produced" value={result.twoPlateResult.totalProduced.toLocaleString()} sub={`${capitalize(terms.overage)}: +${result.twoPlateResult.totalOverage.toLocaleString()}`} accent="text-gray-700" />
+                    <KPICard label="Material Yield" value={`${result.twoPlateResult.materialYield.toFixed(1)}%`} accent="text-emerald-600" />
+                    <KPICard label={`${capitalize(terms.sheet)}s Saved`} value={result.twoPlateResult.sheetsSaved > 0 ? `-${result.twoPlateResult.sheetsSaved}` : `+${Math.abs(result.twoPlateResult.sheetsSaved)}`} sub={result.twoPlateResult.sheetsSaved > 0 ? `vs single ${terms.plate}` : `more than single`} accent={result.twoPlateResult.sheetsSaved > 0 ? "text-emerald-600" : "text-red-500"} />
                   </div>
 
                   {/* Cost info */}
-                  <Card className="bg-slate-800/50 border-amber-700/30">
+                  <Card className="bg-amber-50 border-amber-200">
                     <CardContent className="py-4">
                       <div className="flex items-start gap-3">
-                        <Info className="w-5 h-5 text-amber-400 mt-0.5 shrink-0" />
-                        <div className="text-sm text-slate-300">
+                        <Info className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+                        <div className="text-sm text-gray-700">
                           {result.twoPlateResult.sheetsSaved > 0 ? (
                             <>
-                              Two {terms.plate}s <span className="text-emerald-400 font-semibold">save {result.twoPlateResult.sheetsSaved.toLocaleString()} {terms.sheet}s</span> but cost{" "}
-                              <span className="text-amber-400 font-semibold">1 extra {terms.plate} set + setup</span>. Evaluate if material savings outweigh the additional {terms.plate} cost.
+                              Two {terms.plate}s <span className="text-emerald-600 font-semibold">save {result.twoPlateResult.sheetsSaved.toLocaleString()} {terms.sheet}s</span> but cost{" "}
+                              <span className="text-amber-600 font-semibold">1 extra {terms.plate} set + setup</span>. Evaluate if material savings outweigh the additional {terms.plate} cost.
                             </>
                           ) : (
                             <>Two {terms.plate}s do not save {terms.sheet}s for this configuration.</>
@@ -217,15 +210,15 @@ export function ResultsSection({
                   </Card>
 
                   {/* Plate 1 */}
-                  <Card className="bg-slate-900 border-slate-800">
+                  <Card className="bg-white border-gray-200 shadow-sm">
                     <CardHeader>
-                      <CardTitle className="text-slate-100 text-base flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-sm bg-cyan-500" />
+                      <CardTitle className="text-gray-900 text-base flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-sm bg-blue-500" />
                         {capitalize(terms.plate)} 1 — {result.twoPlateResult.plate1.runLength.toLocaleString()} {terms.sheet}s
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <AllocationTable allocation={result.twoPlateResult.plate1.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} packMode={packMode} terms={terms} />
+                      <AllocationTable allocation={result.twoPlateResult.plate1.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} terms={terms} />
                       <SVGPlateVisualization
                         plateResult={result.twoPlateResult.plate1}
                         sheetWidth={sheetWidth}
@@ -235,7 +228,6 @@ export function ResultsSection({
                         projectNames={projectNames}
                         title={`${capitalize(terms.plate)} 1 — ${result.twoPlateResult.plate1.runLength.toLocaleString()} ${terms.sheet}s`}
                         plateLabel="plate1"
-                        packMode={packMode}
                         terms={terms}
                         bleedMm={bleed}
                       />
@@ -243,15 +235,15 @@ export function ResultsSection({
                   </Card>
 
                   {/* Plate 2 */}
-                  <Card className="bg-slate-900 border-slate-800">
+                  <Card className="bg-white border-gray-200 shadow-sm">
                     <CardHeader>
-                      <CardTitle className="text-slate-100 text-base flex items-center gap-2">
+                      <CardTitle className="text-gray-900 text-base flex items-center gap-2">
                         <div className="w-3 h-3 rounded-sm bg-amber-500" />
                         {capitalize(terms.plate)} 2 — {result.twoPlateResult.plate2.runLength.toLocaleString()} {terms.sheet}s
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <AllocationTable allocation={result.twoPlateResult.plate2.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} packMode={packMode} terms={terms} />
+                      <AllocationTable allocation={result.twoPlateResult.plate2.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} terms={terms} />
                       <SVGPlateVisualization
                         plateResult={result.twoPlateResult.plate2}
                         sheetWidth={sheetWidth}
@@ -261,7 +253,6 @@ export function ResultsSection({
                         projectNames={projectNames}
                         title={`${capitalize(terms.plate)} 2 — ${result.twoPlateResult.plate2.runLength.toLocaleString()} ${terms.sheet}s`}
                         plateLabel="plate2"
-                        packMode={packMode}
                         terms={terms}
                         bleedMm={bleed}
                       />
@@ -269,9 +260,9 @@ export function ResultsSection({
                   </Card>
 
                   {/* Combined summary */}
-                  <Card className="bg-slate-900 border-slate-800">
+                  <Card className="bg-white border-gray-200 shadow-sm">
                     <CardHeader>
-                      <CardTitle className="text-slate-100 text-base">Combined Summary</CardTitle>
+                      <CardTitle className="text-gray-900 text-base">Combined Summary</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <ProductionBarChart
@@ -281,15 +272,14 @@ export function ResultsSection({
                         ]}
                         projectColors={PROJECT_COLORS}
                         projectNames={projectNames}
-                        packMode={packMode}
                       />
                     </CardContent>
                   </Card>
                 </>
               ) : (
-                <Card className="bg-slate-900 border-slate-800">
-                  <CardContent className="py-8 text-center text-slate-400">
-                    <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
+                <Card className="bg-white border-gray-200 shadow-sm">
+                  <CardContent className="py-8 text-center text-gray-500">
+                    <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-500" />
                     <p>Two-{terms.plate} optimization not available.</p>
                   </CardContent>
                 </Card>
