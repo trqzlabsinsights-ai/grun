@@ -2,7 +2,6 @@
 
 import { useCalculatorState } from "@/hooks/use-calculator-state";
 import { CalculatorHeader } from "@/components/calculator/calculator-header";
-import { IndustrySelector } from "@/components/calculator/industry-selector";
 import { InputPanel } from "@/components/calculator/input-panel";
 import { ResultsSection } from "@/components/calculator/results-section";
 
@@ -14,13 +13,6 @@ export default function GangRunCalculator() {
       <CalculatorHeader preset={state.currentPreset} />
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-5">
-        {/* Industry Selector */}
-        <IndustrySelector
-          industry={state.industry}
-          onIndustryChange={state.handleIndustryChange}
-          currentPreset={state.currentPreset}
-        />
-
         {/* Input Panel */}
         <InputPanel
           terms={state.terms}

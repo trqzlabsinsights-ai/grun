@@ -2,7 +2,6 @@
 
 import { useState, useCallback } from "react";
 import type {
-  IndustryKey,
   ProjectInput,
   CalculateResponse,
   PlateSuggestion,
@@ -10,9 +9,10 @@ import type {
 import { INDUSTRY_PRESETS } from "@/lib/industry-presets";
 import { DEFAULT_PROJECTS } from "@/lib/mode-config";
 
+const STICKER_PRESET = INDUSTRY_PRESETS["sticker-printing"];
+
 export function useCalculatorState() {
-  const [industry, setIndustry] = useState<IndustryKey>("sticker-printing");
-  const currentPreset = INDUSTRY_PRESETS[industry];
+  const currentPreset = STICKER_PRESET;
   const terms = currentPreset.terms;
 
   const [sheetWidth, setSheetWidth] = useState(currentPreset.defaults.sheetWidth);
@@ -29,19 +29,6 @@ export function useCalculatorState() {
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [plateSuggestions, setPlateSuggestions] = useState<PlateSuggestion[]>([]);
   const [activeTab, setActiveTab] = useState("two");
-
-  // ── Industry change handler ──────────────────────────────────────────────
-
-  const handleIndustryChange = useCallback((newIndustry: IndustryKey) => {
-    const preset = INDUSTRY_PRESETS[newIndustry];
-    setIndustry(newIndustry);
-    setSheetWidth(preset.defaults.sheetWidth);
-    setSheetHeight(preset.defaults.sheetHeight);
-    setBleed(preset.defaults.bleed);
-    setResult(null);
-    setError(null);
-    setPlateSuggestions([]);
-  }, []);
 
   // ── Calculate ──────────────────────────────────────────────────────────
 
@@ -95,11 +82,9 @@ export function useCalculatorState() {
   const bleedInches = bleed / 25.4;
 
   return {
-    // Industry
-    industry,
+    // Preset
     currentPreset,
     terms,
-    handleIndustryChange,
     // Sheet params
     sheetWidth,
     setSheetWidth,

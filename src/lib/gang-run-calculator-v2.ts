@@ -425,15 +425,16 @@ function findValidPacking(
   const allShapes = allocation.map((a) => getGroupShapes(a.outs));
 
   let attempts = 0;
-  const maxAttempts = 500;
+  const maxAttempts = 5000;
+  let bestPacking: { shapes: GroupShape[]; placedGroups: PlacedGroup[]; usedArea: number } | null = null;
 
   function tryCombo(
     idx: number,
     currentShapes: GroupShape[]
-  ): { shapes: GroupShape[]; placedGroups: PlacedGroup[] } | null {
+  ): void {
+    if (attempts >= maxAttempts) return;
     if (idx === n) {
       attempts++;
-      if (attempts > maxAttempts) return null;
 
       const groupsWithDims: GroupWithDims[] = currentShapes.map((shape, i) => {
         const dims = groupDimensions(shape, allocation[i].stickerWidth, allocation[i].stickerHeight, bleedIn);
@@ -451,32 +452,35 @@ function findValidPacking(
 
       // Pre-check: no single group exceeds sheet dimensions
       for (const g of groupsWithDims) {
-        if (g.width > sheetW || g.height > sheetH) return null;
+        if (g.width > sheetW || g.height > sheetH) return;
       }
 
       const placed = tryPackGroups(groupsWithDims, sheetW, sheetH);
       if (placed) {
-        return { shapes: [...currentShapes], placedGroups: placed };
+        // Calculate used area to prefer packings that fill more space
+        const usedArea = placed.reduce((s, g) => s + g.width * g.height, 0);
+        if (!bestPacking || usedArea > bestPacking.usedArea) {
+          bestPacking = { shapes: [...currentShapes], placedGroups: placed, usedArea };
+        }
       }
-      return null;
+      return;
     }
 
-    const shapesToTry = allShapes[idx].slice(0, 4);
+    // Try more shape variants (8 instead of 4) for better space utilization
+    const shapesToTry = allShapes[idx].slice(0, 8);
     for (const shape of shapesToTry) {
+      if (attempts >= maxAttempts) return;
       const dims = groupDimensions(shape, allocation[idx].stickerWidth, allocation[idx].stickerHeight, bleedIn);
       if (dims.width > sheetW || dims.height > sheetH) continue;
 
       currentShapes.push(shape);
-      const result = tryCombo(idx + 1, currentShapes);
-      if (result) return result;
+      tryCombo(idx + 1, currentShapes);
       currentShapes.pop();
-
-      if (attempts > maxAttempts) return null;
     }
-    return null;
   }
 
-  return tryCombo(0, []);
+  tryCombo(0, []);
+  return bestPacking ? { shapes: bestPacking.shapes, placedGroups: bestPacking.placedGroups } : null;
 }
 
 // ── Allocation with Group Packing ──────────────────────────────────────────
@@ -527,7 +531,8 @@ export function findBestAllocationWithPacking(
 
   // Add totals derived from balancing run lengths
   // Cap L to prevent infinite loops with huge demands (e.g. 6844)
-  const maxL = Math.min(Math.max(...demands), 5000);
+  const maxDemand = Math.max(...demands);
+  const maxL = Math.min(maxDemand, 5000);
   for (let L = 1; L <= maxL; L++) {
     let total = 0;
     for (let i = 0; i < n; i++) {
@@ -537,6 +542,14 @@ export function findBestAllocationWithPacking(
       totalsToTry.push(total);
     }
     if (total <= minTotal) break; // once we hit min, further L gives same or min
+  }
+
+  // Also add every total from minTotal to maxSlots (exhaustive range)
+  // This ensures we try high totals that might pack well
+  for (let t = maxSlots; t >= minTotal; t--) {
+    if (!totalsToTry.includes(t)) {
+      totalsToTry.push(t);
+    }
   }
 
   // Also add some totals around the middle
