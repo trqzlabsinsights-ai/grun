@@ -687,10 +687,90 @@ export function findBestAllocationWithPacking(
       search(0, totalOuts);
     }
 
+    // Apply yield maximization to fallback result too
+    if (bestResult) {
+      bestResult = maximizeYield(bestResult, demands, stickerSizes, sheetW, sheetH, bleedIn, perProjectMax);
+    }
     return bestResult;
   }
 
+  // ── STEP 4: Yield Maximization ──────────────────────────────────────────
+  // After finding the best run length, try to increase each project's outs
+  // to fill the sheet better (same run length, higher material yield).
+
+  globalBestResult = maximizeYield(globalBestResult, demands, stickerSizes, sheetW, sheetH, bleedIn, perProjectMax);
+
   return globalBestResult;
+}
+
+// ── Yield Maximization ───────────────────────────────────────────────────
+// Greedily increase each project's outs while keeping the same run length.
+// This fills the sheet better without increasing total sheets.
+
+function maximizeYield(
+  bestResult: AllocationWithPacking | null,
+  demands: number[],
+  stickerSizes: { width: number; height: number }[],
+  sheetW: number,
+  sheetH: number,
+  bleedIn: number,
+  perProjectMax: number[]
+): AllocationWithPacking | null {
+  if (!bestResult) return null;
+
+  const n = demands.length;
+  const allocation = [...bestResult.allocation];
+  const targetL = bestResult.runLength;
+  let currentShapes = [...bestResult.shapes];
+  let currentPlaced = bestResult.placedGroups;
+  let improved = true;
+
+  while (improved) {
+    improved = false;
+    for (let i = 0; i < n; i++) {
+      // Try increasing this project's outs by 1
+      if (allocation[i] >= perProjectMax[i]) continue;
+
+      const newOuts = allocation[i] + 1;
+
+      // Check that increasing outs doesn't increase the run length
+      if (Math.ceil(demands[i] / newOuts) > targetL) continue;
+      // Actually, since we're increasing outs, ceil(d/q) can only decrease or stay same
+      // So this check always passes, but let's keep it for safety
+
+      const testAlloc = [...allocation];
+      testAlloc[i] = newOuts;
+
+      const allocInfo = testAlloc.map((outs, j) => ({
+        name: `p${j}`, projectIdx: j, outs,
+        stickerWidth: stickerSizes[j].width, stickerHeight: stickerSizes[j].height,
+      }));
+
+      const packing = findValidPacking(allocInfo, sheetW, sheetH, bleedIn);
+      if (packing) {
+        // Check that run length hasn't increased
+        let newL = 0;
+        for (let j = 0; j < n; j++) newL = Math.max(newL, Math.ceil(demands[j] / testAlloc[j]));
+        if (newL <= targetL) {
+          allocation[i] = newOuts;
+          currentShapes = packing.shapes;
+          currentPlaced = packing.placedGroups;
+          improved = true;
+        }
+      }
+    }
+  }
+
+  // Recompute run length (should be same or better)
+  let finalL = 0;
+  for (let i = 0; i < n; i++) finalL = Math.max(finalL, Math.ceil(demands[i] / allocation[i]));
+
+  return {
+    allocation,
+    runLength: finalL,
+    shapes: currentShapes,
+    placedGroups: currentPlaced,
+  };
 }
 
 // ── Extra Slot Distribution ──────────────────────────────────────────────
@@ -810,7 +890,12 @@ export function buildPlateResult(
     };
   });
 
-  const remappedGroups: PlacedGroup[] = placedGroups.map((pg) => {
+  // Safety: filter out any placed groups that exceed sheet boundaries
+  const validGroups = placedGroups.filter((pg) => {
+    return pg.x + pg.width <= sheetW + 0.01 && pg.y + pg.height <= sheetH + 0.01;
+  });
+
+  const remappedGroups: PlacedGroup[] = validGroups.map((pg) => {
     const localIdx = parseInt(pg.name.replace("p", ""));
     return {
       ...pg,
@@ -871,20 +956,38 @@ export function estimateMaxSlots(
   bleedMm: number
 ): number {
   const bleedIn = bleedMm / 25.4;
-  let maxCap = 0;
+  let gridBasedCap = 0;
+  let areaBasedCap = 0;
+  const sheetArea = sheetW * sheetH;
+
   for (const s of stickerSizes) {
+    // Grid-based estimate (conservative)
     const cellW1 = s.width + 2 * bleedIn;
     const cellH1 = s.height + 2 * bleedIn;
     const cols1 = Math.floor(sheetW / cellW1);
     const rows1 = Math.floor(sheetH / cellH1);
-    maxCap = Math.max(maxCap, cols1 * rows1);
+    gridBasedCap = Math.max(gridBasedCap, cols1 * rows1);
     const cellW2 = s.height + 2 * bleedIn;
     const cellH2 = s.width + 2 * bleedIn;
     const cols2 = Math.floor(sheetW / cellW2);
     const rows2 = Math.floor(sheetH / cellH2);
-    maxCap = Math.max(maxCap, cols2 * rows2);
+    gridBasedCap = Math.max(gridBasedCap, cols2 * rows2);
+
+    // Area-based estimate (generous — accounts for mixed group shapes)
+    // With group packing, stickers from different projects can be arranged
+    // in non-grid layouts, so area is a better upper bound
+    const minCellArea = Math.min(cellW1 * cellH1, cellW2 * cellH2);
+    areaBasedCap = Math.max(areaBasedCap, Math.floor(sheetArea / minCellArea));
   }
-  return Math.max(maxCap, stickerSizes.length * 2);
+
+  // Use the larger of grid-based or area-based, with generous headroom.
+  // Multiply by 1.4 to give the search algorithm room to explore allocations
+  // that exceed simple estimates but can fit with MaxRect 2D packing.
+  // This is critical for finding better splits in two-plate optimization
+  // where projects need to share space in non-obvious arrangements.
+  const estimatedCap = Math.max(gridBasedCap, areaBasedCap);
+  const withHeadroom = Math.ceil(estimatedCap * 1.4);
+  return Math.max(withHeadroom, stickerSizes.length * 2);
 }
 
 // ── Two-Plate Optimization ────────────────────────────────────────────────
