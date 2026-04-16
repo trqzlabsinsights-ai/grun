@@ -17,9 +17,25 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
-import { Calculator, ChevronDown, ChevronUp, Loader2, Plus, Trash2, Ruler } from "lucide-react";
+import { Calculator, ChevronDown, ChevronUp, Loader2, Plus, Trash2, Ruler, Info } from "lucide-react";
 import type { ProjectInput, IndustryTerms } from "@/lib/types";
 import { capitalize, PROJECT_COLORS } from "@/lib/industry-presets";
+
+// ── Info Tooltip Component ────────────────────────────────────────────────
+
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <div className="group relative flex items-center">
+      <Info className="w-4 h-4 text-gray-400 hover:text-blue-500 cursor-help transition-colors" />
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-56 p-2 bg-gray-800 text-white text-xs rounded shadow-lg z-10 text-center font-normal pointer-events-none">
+        {text}
+        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+      </div>
+    </div>
+  );
+}
+
+// ── Input Panel ────────────────────────────────────────────────────────────
 
 interface InputPanelProps {
   terms: IndustryTerms;
@@ -103,7 +119,10 @@ export function InputPanel({
             {/* Sheet dimensions and bleed */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label className="text-sm font-medium text-gray-700">{capitalize(terms.sheet)} Size (inches)</Label>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm font-medium text-gray-700">{capitalize(terms.sheet)} Size (inches)</Label>
+                  <InfoTooltip text={`The total physical dimensions of the printing plate or master stock sheet you will be feeding into the press.`} />
+                </div>
                 <div className="flex items-center gap-2">
                   <Input type="number" step="0.1" min="1" value={sheetWidth} onChange={(e) => setSheetWidth(parseFloat(e.target.value) || 0)} className="bg-white border-gray-300 text-gray-900" placeholder="W" />
                   <span className="text-gray-400">&times;</span>
@@ -112,7 +131,10 @@ export function InputPanel({
               </div>
               {terms.bleed !== "\u2014" ? (
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium text-gray-700">{capitalize(terms.bleed)} (mm per side, per group)</Label>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm font-medium text-gray-700">{capitalize(terms.bleed)} (mm per side, per group)</Label>
+                    <InfoTooltip text={`Extra printed area beyond the final trim line. This prevents white borders from showing if the cutting blade shifts slightly.`} />
+                  </div>
                   <Input type="number" step="0.5" min="0" value={bleed} onChange={(e) => setBleed(parseFloat(e.target.value) || 0)} className="bg-white border-gray-300 text-gray-900" />
                 </div>
               ) : (
@@ -125,9 +147,12 @@ export function InputPanel({
             {/* Project list */}
             <div className="space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <Label className="text-sm font-medium text-gray-700">
-                  Projects (min 2 {terms.outs} each)
-                </Label>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm font-medium text-gray-700">
+                    Projects (min 2 {terms.outs} each)
+                  </Label>
+                  <InfoTooltip text={`"Outs" refer to how many identical pieces of a project fit onto one single master sheet.`} />
+                </div>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
@@ -222,7 +247,7 @@ export function InputPanel({
               <Button onClick={onCalculate} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8" size="lg">
                 {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Optimizing...</> : <><Calculator className="w-4 h-4 mr-2" /> Calculate</>}
               </Button>
-              {loading && <span className="text-sm text-gray-500">Exhaustive search with MaxRect packing...</span>}
+              {loading && <span className="text-sm text-gray-500">Running optimization algorithm...</span>}
             </div>
           </CardContent>
         </CollapsibleContent>

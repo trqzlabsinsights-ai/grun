@@ -79,7 +79,7 @@ export function ResultsSection({
                 <KPICard label={`${capitalize(terms.sheet)} Size`} value={`${sheetWidth}" \u00d7 ${sheetHeight}"`} accent="text-emerald-600" />
                 <KPICard label="Mode" value="Mixed Rect" sub="Per-project dimensions" accent="text-blue-600" />
                 <KPICard label={terms.bleed !== "\u2014" ? `${capitalize(terms.bleed)} Per Side` : "Bleed"} value={terms.bleed !== "\u2014" ? `${bleed}mm` : "0mm"} sub={bleed > 0 ? `${bleedInches.toFixed(4)}"` : undefined} accent="text-amber-600" />
-                <KPICard label="Algorithm" value="MaxRect" sub="2D bin packing" accent="text-gray-600" />
+                <KPICard label="Algorithm" value="GangPack" sub="Intelligent packing" accent="text-gray-600" />
               </div>
             </CardContent>
           </Card>

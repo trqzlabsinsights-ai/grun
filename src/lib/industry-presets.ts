@@ -26,7 +26,7 @@ export const INDUSTRY_PRESETS: Record<IndustryKey, IndustryPreset> = {
     icon: "🏷️",
     description: "Traditional sticker/printing gang run optimization",
     headerTitle: "Gang Run Calculator",
-    headerSubtitle: "Plate optimization with MaxRect 2D packing",
+    headerSubtitle: "Intelligent plate optimization algorithm",
     terms: {
       sheet: "sheet",
       sticker: "sticker",
@@ -44,7 +44,7 @@ export const INDUSTRY_PRESETS: Record<IndustryKey, IndustryPreset> = {
     icon: "🖨️",
     description: "Press sheet layout for offset printing jobs",
     headerTitle: "Press Sheet Optimizer",
-    headerSubtitle: "Card/panel layout with MaxRect 2D packing",
+    headerSubtitle: "Intelligent card/panel layout algorithm",
     terms: {
       sheet: "press sheet",
       sticker: "card/panel",
@@ -62,7 +62,7 @@ export const INDUSTRY_PRESETS: Record<IndustryKey, IndustryPreset> = {
     icon: "⚙️",
     description: "Material stock layout for CNC cutting optimization",
     headerTitle: "CNC Cutting Optimizer",
-    headerSubtitle: "Material nesting with MaxRect 2D packing",
+    headerSubtitle: "Intelligent material nesting algorithm",
     terms: {
       sheet: "stock/material",
       sticker: "part/piece",
@@ -80,7 +80,7 @@ export const INDUSTRY_PRESETS: Record<IndustryKey, IndustryPreset> = {
     icon: "✂️",
     description: "Fabric roll/marker layout for pattern cutting",
     headerTitle: "Fabric Cutting Optimizer",
-    headerSubtitle: "Pattern nesting with MaxRect 2D packing",
+    headerSubtitle: "Intelligent pattern nesting algorithm",
     terms: {
       sheet: "fabric roll/yard",
       sticker: "pattern piece",
@@ -98,7 +98,7 @@ export const INDUSTRY_PRESETS: Record<IndustryKey, IndustryPreset> = {
     icon: "📦",
     description: "Pallet layout optimization for box/carton loading",
     headerTitle: "Pallet Loading Optimizer",
-    headerSubtitle: "Box/carton arrangement with MaxRect 2D packing",
+    headerSubtitle: "Intelligent box/carton arrangement algorithm",
     terms: {
       sheet: "pallet",
       sticker: "box/carton",
@@ -116,7 +116,7 @@ export const INDUSTRY_PRESETS: Record<IndustryKey, IndustryPreset> = {
     icon: "🪟",
     description: "Glass sheet layout for pane/panel cutting",
     headerTitle: "Glass Cutting Optimizer",
-    headerSubtitle: "Glass nesting with MaxRect 2D packing",
+    headerSubtitle: "Intelligent glass nesting algorithm",
     terms: {
       sheet: "glass sheet",
       sticker: "pane/panel",
@@ -134,7 +134,7 @@ export const INDUSTRY_PRESETS: Record<IndustryKey, IndustryPreset> = {
     icon: "🔌",
     description: "Board/die layout for component/block placement",
     headerTitle: "VLSI / PCB Layout Optimizer",
-    headerSubtitle: "Component placement with MaxRect 2D packing",
+    headerSubtitle: "Intelligent component placement algorithm",
     terms: {
       sheet: "board/die",
       sticker: "component/block",

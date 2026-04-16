@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "GangRun — Plate Optimization Calculator",
-  description: "Optimize your gang run plate layout with MaxRect 2D packing. Calculate the best outs, run length, and material yield for your printing projects.",
-  keywords: ["gang run", "plate optimization", "printing calculator", "MaxRect", "2D packing"],
+  description: "Optimize your gang run plate layout with intelligent packing. Calculate the best outs, run length, and material yield for your printing projects.",
+  keywords: ["gang run", "plate optimization", "printing calculator", "gang run calculator", "plate layout"],
   icons: {
     icon: "/logo.svg",
   },
