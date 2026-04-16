@@ -50,9 +50,70 @@ export default function PrivacyPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-gray-900 mb-3">No Tracking, No Cookies</h2>
-              <p className="text-gray-600 leading-relaxed">
-                We use minimal, functional-only cookies required to keep the application running smoothly &mdash; things like session state for the calculator interface. We do not use third-party analytics trackers, advertising pixels, or fingerprinting techniques. We don&rsquo;t follow you around the internet after you leave. Your visit to GangRun is nobody&rsquo;s business but your own.
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">Cookie Policy</h2>
+              <p className="text-gray-600 leading-relaxed mb-4">
+                GangRun uses a small number of essential cookies that are strictly necessary for the application to function. These include session state for the calculator interface (such as whether the input panel is open or collapsed) and your cookie consent preference. These cookies are not used for tracking, advertising, or analytics purposes.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-medium text-gray-700 border-b border-gray-200">Cookie</th>
+                      <th className="text-left px-4 py-2 font-medium text-gray-700 border-b border-gray-200">Purpose</th>
+                      <th className="text-left px-4 py-2 font-medium text-gray-700 border-b border-gray-200">Duration</th>
+                      <th className="text-left px-4 py-2 font-medium text-gray-700 border-b border-gray-200">Type</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-gray-100">
+                      <td className="px-4 py-2 text-gray-900 font-mono text-xs">gangrun_cookie_consent</td>
+                      <td className="px-4 py-2 text-gray-600">Stores your cookie consent choice</td>
+                      <td className="px-4 py-2 text-gray-600">Persistent (localStorage)</td>
+                      <td className="px-4 py-2"><span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700">Essential</span></td>
+                    </tr>
+                    <tr className="border-b border-gray-100">
+                      <td className="px-4 py-2 text-gray-900 font-mono text-xs">Next.js session cookies</td>
+                      <td className="px-4 py-2 text-gray-600">Maintains application session state</td>
+                      <td className="px-4 py-2 text-gray-600">Session</td>
+                      <td className="px-4 py-2"><span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700">Essential</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-gray-600 leading-relaxed mt-4">
+                We do not use third-party analytics trackers, advertising pixels, or fingerprinting techniques. We don&rsquo;t follow you around the internet after you leave. Your visit to GangRun is nobody&rsquo;s business but your own.
+              </p>
+            </section>
+
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">GDPR Compliance</h2>
+              <p className="text-gray-600 leading-relaxed mb-3">
+                GangRun is committed to compliance with the General Data Protection Regulation (GDPR) and other applicable data protection laws. Here is how we address your rights:
+              </p>
+              <ul className="space-y-2 text-gray-600">
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 font-bold mt-0.5 shrink-0">&#x2022;</span>
+                  <span><strong>Right to Information (Art. 13/14):</strong> This privacy policy serves as our transparent disclosure of how we process your data.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 font-bold mt-0.5 shrink-0">&#x2022;</span>
+                  <span><strong>Right to Access (Art. 15):</strong> You can request information about any personal data we process about you. Since we do not store your calculation data, there is typically nothing to access.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 font-bold mt-0.5 shrink-0">&#x2022;</span>
+                  <span><strong>Right to Erasure (Art. 17):</strong> You can clear your cookie consent at any time through your browser settings. No other data is retained on our servers.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 font-bold mt-0.5 shrink-0">&#x2022;</span>
+                  <span><strong>Lawful Basis (Art. 6):</strong> We process data based on legitimate interest (providing the calculation service you requested) and consent (for essential cookies).</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-600 font-bold mt-0.5 shrink-0">&#x2022;</span>
+                  <span><strong>Data Minimization (Art. 5):</strong> We only process the minimum data necessary to perform the calculation you requested. No excess data is collected or retained.</span>
+                </li>
+              </ul>
+              <p className="text-gray-600 leading-relaxed mt-3">
+                If you are a data protection officer or have specific GDPR-related inquiries, please reach out through our Support page. We take data protection seriously and will respond promptly to any formal requests.
               </p>
             </section>
 
