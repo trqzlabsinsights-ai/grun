@@ -2,11 +2,11 @@
 // Supports per-project sticker dimensions with MaxRect 2D bin packing.
 // Pure functions, no Next.js deps.
 //
-// KEY ALGORITHM: Direct L-search
-// Instead of searching over "totals" and allocations indirectly, we search
-// run length L directly from 1 upward. For each L, we compute the minimum
-// outs per project, then try to pack. The first L that packs is optimal.
-// This guarantees finding the minimum possible run length.
+// KEY ALGORITHM: Direct L-search with full rotation support
+// - Rectangles can be ROTATED: sticker 24×16.5 is the same as 16.5×24
+// - Groups can be ROTATED on the sheet (portrait ↔ landscape)
+// - Both orientations are tried automatically during packing
+// - This ensures identical results regardless of dimension input order
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -124,13 +124,19 @@ export function groupDimensions(
   };
 }
 
-// ── MaxRect 2D Bin Packing ────────────────────────────────────────────────
+// ── MaxRect 2D Bin Packing (with rotation support) ───────────────────────
 
 interface MaxRect {
   x: number;
   y: number;
   width: number;
   height: number;
+}
+
+interface PlacementResult {
+  x: number;
+  y: number;
+  rotated: boolean; // true if the group was rotated 90° on the sheet
 }
 
 export function maxRectPack(
@@ -149,7 +155,6 @@ export function maxRectPack(
       if (b.height !== a.height) return b.height - a.height;
       return b.width - a.width;
     }),
-    // Additional orderings for better coverage
     [...groups].sort((a, b) => {
       if (b.width !== a.width) return b.width - a.width;
       return b.height - a.height;
@@ -182,54 +187,96 @@ function maxRectPackOneOrder(
   const placed: PlacedGroup[] = [];
 
   for (const group of groups) {
+    // Try both orientations: original and rotated (swap width/height)
     const result = findBestFreeRect(freeRects, group.width, group.height, sheetW, sheetH);
 
     if (!result) return null;
-    if (result.x + group.width > sheetW + 0.001 || result.y + group.height > sheetH + 0.001) return null;
+
+    let placedW: number, placedH: number;
+    let placedShape: GroupShape;
+    let placedStickerW: number, placedStickerH: number;
+
+    if (result.rotated) {
+      // Group is rotated 90° on the sheet — swap all dimensions
+      placedW = group.height;
+      placedH = group.width;
+      placedShape = { w: group.shape.h, h: group.shape.w };
+      placedStickerW = group.stickerHeight;
+      placedStickerH = group.stickerWidth;
+    } else {
+      placedW = group.width;
+      placedH = group.height;
+      placedShape = { ...group.shape };
+      placedStickerW = group.stickerWidth;
+      placedStickerH = group.stickerHeight;
+    }
+
+    if (result.x + placedW > sheetW + 0.001 || result.y + placedH > sheetH + 0.001) return null;
 
     placed.push({
       name: group.name,
       projectIdx: group.projectIdx,
-      shape: group.shape,
+      shape: placedShape,
       outs: group.outs,
       x: result.x,
       y: result.y,
-      width: group.width,
-      height: group.height,
-      stickerWidth: group.stickerWidth,
-      stickerHeight: group.stickerHeight,
+      width: placedW,
+      height: placedH,
+      stickerWidth: placedStickerW,
+      stickerHeight: placedStickerH,
     });
 
-    freeRects = splitFreeRects(freeRects, result.x, result.y, group.width, group.height);
+    freeRects = splitFreeRects(freeRects, result.x, result.y, placedW, placedH);
     freeRects = pruneFreeRects(freeRects);
   }
 
   return placed;
 }
 
+/**
+ * Find the best free rectangle to place a group, trying BOTH orientations.
+ * Uses Best Short Side Fit (BSSF) heuristic.
+ * Returns null if the group doesn't fit in either orientation.
+ */
 function findBestFreeRect(
   freeRects: MaxRect[],
   rectW: number,
   rectH: number,
   sheetW: number,
   sheetH: number
-): { x: number; y: number } | null {
+): PlacementResult | null {
   let bestScore = Infinity;
-  let bestRect: { x: number; y: number } | null = null;
+  let bestResult: PlacementResult | null = null;
 
+  // Try original orientation (rectW × rectH)
   for (const fr of freeRects) {
-    if (rectW <= fr.width && rectH <= fr.height) {
+    if (rectW <= fr.width + 0.001 && rectH <= fr.height + 0.001) {
       if (fr.x + rectW <= sheetW + 0.001 && fr.y + rectH <= sheetH + 0.001) {
         const shortSideFit = Math.min(fr.width - rectW, fr.height - rectH);
         if (shortSideFit < bestScore) {
           bestScore = shortSideFit;
-          bestRect = { x: fr.x, y: fr.y };
+          bestResult = { x: fr.x, y: fr.y, rotated: false };
         }
       }
     }
   }
 
-  return bestRect;
+  // Try rotated orientation (rectH × rectW) — only if different from original
+  if (Math.abs(rectW - rectH) > 0.001) {
+    for (const fr of freeRects) {
+      if (rectH <= fr.width + 0.001 && rectW <= fr.height + 0.001) {
+        if (fr.x + rectH <= sheetW + 0.001 && fr.y + rectW <= sheetH + 0.001) {
+          const shortSideFit = Math.min(fr.width - rectH, fr.height - rectW);
+          if (shortSideFit < bestScore) {
+            bestScore = shortSideFit;
+            bestResult = { x: fr.x, y: fr.y, rotated: true };
+          }
+        }
+      }
+    }
+  }
+
+  return bestResult;
 }
 
 function splitFreeRects(
@@ -290,7 +337,7 @@ function pruneFreeRects(freeRects: MaxRect[]): MaxRect[] {
   return result;
 }
 
-// ── Shelf Packing (fallback) ─────────────────────────────────────────────
+// ── Shelf Packing (fallback, with rotation support) ─────────────────────
 
 function shelfPack(
   groups: GroupWithDims[],
@@ -303,28 +350,50 @@ function shelfPack(
   let cursorX = 0;
 
   for (const g of groups) {
-    if (cursorX + g.width <= sheetW + 0.001) {
-      placed.push({
-        name: g.name, projectIdx: g.projectIdx, shape: g.shape, outs: g.outs,
-        x: cursorX, y: shelfY, width: g.width, height: g.height,
-        stickerWidth: g.stickerWidth, stickerHeight: g.stickerHeight,
-      });
-      cursorX += g.width;
-      shelfHeight = Math.max(shelfHeight, g.height);
-    } else {
-      shelfY += shelfHeight;
-      shelfHeight = 0;
-      cursorX = 0;
-      if (g.width > sheetW + 0.001) return null;
-      if (shelfY + g.height > sheetH + 0.001) return null;
-      placed.push({
-        name: g.name, projectIdx: g.projectIdx, shape: g.shape, outs: g.outs,
-        x: cursorX, y: shelfY, width: g.width, height: g.height,
-        stickerWidth: g.stickerWidth, stickerHeight: g.stickerHeight,
-      });
-      cursorX += g.width;
-      shelfHeight = Math.max(shelfHeight, g.height);
+    // Try both orientations for each group
+    const tryOrientations = g.width !== g.height
+      ? [
+          { w: g.width, h: g.height, shape: { w: g.shape.w, h: g.shape.h }, sw: g.stickerWidth, sh: g.stickerHeight },
+          { w: g.height, h: g.width, shape: { w: g.shape.h, h: g.shape.w }, sw: g.stickerHeight, sh: g.stickerWidth },
+        ]
+      : [
+          { w: g.width, h: g.height, shape: { w: g.shape.w, h: g.shape.h }, sw: g.stickerWidth, sh: g.stickerHeight },
+        ];
+
+    let fitOrient: typeof tryOrientations[0] | null = null;
+
+    for (const orient of tryOrientations) {
+      if (orient.w > sheetW + 0.001) continue; // Too wide even alone
+      if (cursorX + orient.w <= sheetW + 0.001 && shelfY + orient.h <= sheetH + 0.001) {
+        fitOrient = orient;
+        break; // First fit is good enough for shelf packing
+      }
     }
+
+    if (!fitOrient) {
+      // Try starting a new shelf
+      for (const orient of tryOrientations) {
+        if (orient.w > sheetW + 0.001) continue;
+        const newShelfY = shelfY + shelfHeight;
+        if (newShelfY + orient.h <= sheetH + 0.001) {
+          fitOrient = orient;
+          shelfY = newShelfY;
+          shelfHeight = 0;
+          cursorX = 0;
+          break;
+        }
+      }
+    }
+
+    if (!fitOrient) return null;
+
+    placed.push({
+      name: g.name, projectIdx: g.projectIdx, shape: fitOrient.shape, outs: g.outs,
+      x: cursorX, y: shelfY, width: fitOrient.w, height: fitOrient.h,
+      stickerWidth: fitOrient.sw, stickerHeight: fitOrient.sh,
+    });
+    cursorX += fitOrient.w;
+    shelfHeight = Math.max(shelfHeight, fitOrient.h);
   }
 
   if (shelfY + shelfHeight > sheetH + 0.001) return null;
@@ -356,7 +425,10 @@ function tryPackGroups(
   return null;
 }
 
-// ── Shape Combination Packing ──────────────────────────────────────────────
+// ── Shape Combination Packing (with both sticker orientations) ────────────
+// For each project, generates groups with BOTH sticker orientations
+// (original and rotated). This ensures that entering 24×16.5 vs 16.5×24
+// produces identical results.
 
 function findValidPacking(
   allocation: { name: string; projectIdx: number; outs: number; stickerWidth: number; stickerHeight: number }[],
@@ -365,51 +437,81 @@ function findValidPacking(
   bleedIn: number
 ): { shapes: GroupShape[]; placedGroups: PlacedGroup[] } | null {
   const n = allocation.length;
-  const allShapes = allocation.map((a) => getGroupShapes(a.outs));
+
+  // For each project, generate ALL possible group variants:
+  // - Each factor pair of outs
+  // - Both sticker orientations (original and rotated)
+  // Deduplicate by dimensions to avoid redundant work
+  const allGroupVariants: GroupWithDims[][] = allocation.map((a) => {
+    const shapes = getGroupShapes(a.outs);
+    const variants: GroupWithDims[] = [];
+    const seen = new Set<string>();
+
+    for (const shape of shapes) {
+      // Original sticker orientation
+      const dims1 = groupDimensions(shape, a.stickerWidth, a.stickerHeight, bleedIn);
+      const key1 = `${dims1.width.toFixed(4)},${dims1.height.toFixed(4)}`;
+      if (dims1.width <= sheetW + 0.001 && dims1.height <= sheetH + 0.001 && !seen.has(key1)) {
+        seen.add(key1);
+        variants.push({
+          name: a.name, projectIdx: a.projectIdx, shape, outs: a.outs,
+          width: dims1.width, height: dims1.height,
+          stickerWidth: a.stickerWidth, stickerHeight: a.stickerHeight,
+        });
+      }
+
+      // Rotated sticker orientation (swap sticker W↔H)
+      // This creates a DIFFERENT group rectangle that may pack better
+      if (Math.abs(a.stickerWidth - a.stickerHeight) > 0.001) {
+        const dims2 = groupDimensions(shape, a.stickerHeight, a.stickerWidth, bleedIn);
+        const key2 = `${dims2.width.toFixed(4)},${dims2.height.toFixed(4)}`;
+        if (dims2.width <= sheetW + 0.001 && dims2.height <= sheetH + 0.001 && !seen.has(key2)) {
+          seen.add(key2);
+          variants.push({
+            name: a.name, projectIdx: a.projectIdx, shape, outs: a.outs,
+            width: dims2.width, height: dims2.height,
+            stickerWidth: a.stickerHeight, stickerHeight: a.stickerWidth,
+          });
+        }
+      }
+    }
+
+    return variants;
+  });
+
+  // Check that all projects have at least one viable variant
+  for (const variants of allGroupVariants) {
+    if (variants.length === 0) return null;
+  }
 
   let bestPacking: { shapes: GroupShape[]; placedGroups: PlacedGroup[]; usedArea: number } | null = null;
   let attempts = 0;
-  const maxAttempts = 50000; // High limit — user said slow is OK
+  const maxAttempts = 200000; // High limit — user said slow is OK
 
-  function tryCombo(idx: number, currentShapes: GroupShape[]): void {
+  function tryCombo(idx: number, currentGroups: GroupWithDims[]): void {
     if (attempts >= maxAttempts) return;
     if (idx === n) {
       attempts++;
 
-      const groupsWithDims: GroupWithDims[] = currentShapes.map((shape, i) => {
-        const dims = groupDimensions(shape, allocation[i].stickerWidth, allocation[i].stickerHeight, bleedIn);
-        return {
-          name: allocation[i].name, projectIdx: allocation[i].projectIdx,
-          shape, outs: allocation[i].outs,
-          width: dims.width, height: dims.height,
-          stickerWidth: allocation[i].stickerWidth, stickerHeight: allocation[i].stickerHeight,
-        };
-      });
-
-      for (const g of groupsWithDims) {
-        if (g.width > sheetW + 0.001 || g.height > sheetH + 0.001) return;
-      }
-
-      const placed = tryPackGroups(groupsWithDims, sheetW, sheetH);
+      const placed = tryPackGroups(currentGroups, sheetW, sheetH);
       if (placed) {
         const usedArea = placed.reduce((s, g) => s + g.width * g.height, 0);
         if (!bestPacking || usedArea > bestPacking.usedArea) {
-          bestPacking = { shapes: [...currentShapes], placedGroups: placed, usedArea };
+          bestPacking = {
+            shapes: currentGroups.map(g => ({ w: g.shape.w, h: g.shape.h })),
+            placedGroups: placed,
+            usedArea,
+          };
         }
       }
       return;
     }
 
-    // Try ALL shapes (not just first 8)
-    const shapesToTry = allShapes[idx];
-    for (const shape of shapesToTry) {
+    for (const variant of allGroupVariants[idx]) {
       if (attempts >= maxAttempts) return;
-      const dims = groupDimensions(shape, allocation[idx].stickerWidth, allocation[idx].stickerHeight, bleedIn);
-      if (dims.width > sheetW + 0.001 || dims.height > sheetH + 0.001) continue;
-
-      currentShapes.push(shape);
-      tryCombo(idx + 1, currentShapes);
-      currentShapes.pop();
+      currentGroups.push(variant);
+      tryCombo(idx + 1, currentGroups);
+      currentGroups.pop();
     }
   }
 
@@ -444,13 +546,23 @@ export function findBestAllocationWithPacking(
   const minTotal = n * minOuts;
   if (minTotal > maxSlots) return null;
 
-  // Compute per-project max outs (grid capacity for each sticker size)
+  // Compute per-project max outs — try both sticker orientations and take the max
   const perProjectMax: number[] = stickerSizes.map((s) => {
-    const cellW = s.width + 2 * bleedIn;
-    const cellH = s.height + 2 * bleedIn;
-    const cols = Math.floor(sheetW / cellW);
-    const rows = Math.floor(sheetH / cellH);
-    return Math.max(cols * rows, minOuts);
+    // Original orientation
+    const cellW1 = s.width + 2 * bleedIn;
+    const cellH1 = s.height + 2 * bleedIn;
+    const cols1 = Math.floor(sheetW / cellW1);
+    const rows1 = Math.floor(sheetH / cellH1);
+    const cap1 = cols1 * rows1;
+
+    // Rotated orientation
+    const cellW2 = s.height + 2 * bleedIn;
+    const cellH2 = s.width + 2 * bleedIn;
+    const cols2 = Math.floor(sheetW / cellW2);
+    const rows2 = Math.floor(sheetH / cellH2);
+    const cap2 = cols2 * rows2;
+
+    return Math.max(cap1, cap2, minOuts);
   });
 
   // ── STEP 1: Compute all critical L values ──────────────────────────────
@@ -462,7 +574,6 @@ export function findBestAllocationWithPacking(
     for (let k = minOuts; k <= perProjectMax[i]; k++) {
       criticalLs.add(Math.ceil(demands[i] / k));
     }
-    // Also add L=1 and the demand itself
     criticalLs.add(1);
     criticalLs.add(demands[i]);
   }
@@ -470,31 +581,20 @@ export function findBestAllocationWithPacking(
   const sortedLs = [...criticalLs].sort((a, b) => a - b);
 
   // ── STEP 2: For each L (ascending), try minimum allocation + extras ────
-  // Cache: if an allocation vector was already tried and couldn't pack, skip it
 
   const triedAllocations = new Set<string>();
 
   for (const L of sortedLs) {
-    // Compute minimum outs for this L
     const minAllocation = demands.map((d) => Math.max(minOuts, Math.ceil(d / L)));
     const minTotalOuts = minAllocation.reduce((s, o) => s + o, 0);
 
-    // If minimum allocation already exceeds maxSlots, this L is impossible
     if (minTotalOuts > maxSlots) continue;
-
-    // We found an L where the minimum allocation fits in maxSlots.
-    // Now try to pack it. Also try distributing extra slots (maxSlots - minTotalOuts)
-    // to projects to reduce overage.
 
     const extraSlots = maxSlots - minTotalOuts;
 
-    // Generate allocation variants: minimum + all ways to distribute extra slots
-    // But cap the number of extra-slot distributions to avoid explosion
     const allocationsToTry: number[][] = [[...minAllocation]];
 
     if (extraSlots > 0) {
-      // Try giving extra slots to projects with the highest demand/outs ratio
-      // (they benefit most from more outs)
       generateExtraSlotDistributions(minAllocation, extraSlots, perProjectMax, allocationsToTry, 200);
     }
 
@@ -505,7 +605,6 @@ export function findBestAllocationWithPacking(
       if (triedAllocations.has(key)) continue;
       triedAllocations.add(key);
 
-      // Verify this allocation gives L or better
       let actualL = 0;
       for (let i = 0; i < n; i++) {
         actualL = Math.max(actualL, Math.ceil(demands[i] / alloc[i]));
@@ -530,18 +629,14 @@ export function findBestAllocationWithPacking(
             placedGroups: packing.placedGroups,
           };
         }
-        // If we found a packing with this L, that's the minimum possible L
-        // (since we're searching L in ascending order)
         if (actualL <= L) return bestPackingForL;
       }
     }
 
-    // If we found a valid packing for this L, return it
     if (bestPackingForL) return bestPackingForL;
   }
 
   // ── STEP 3: Fallback — brute force search over all totals ──────────────
-  // If the critical-L search didn't find anything, try the old approach
 
   let bestL = Infinity;
   let bestResult: AllocationWithPacking | null = null;
@@ -600,8 +695,6 @@ export function findBestAllocationWithPacking(
 }
 
 // ── Extra Slot Distribution ──────────────────────────────────────────────
-// Generates different ways to distribute extra slots among projects.
-// Prioritizes giving extra slots to projects with highest demand/outs ratio.
 
 function generateExtraSlotDistributions(
   baseAllocation: number[],
@@ -612,8 +705,9 @@ function generateExtraSlotDistributions(
 ): void {
   const n = baseAllocation.length;
 
-  // Strategy 1: Give all extra to the bottleneck project (highest demand/outs)
+  // Strategy 1: Give all extra to each project
   for (let i = 0; i < n; i++) {
+    if (results.length >= maxResults) return;
     const alloc = [...baseAllocation];
     const canGive = Math.min(extraSlots, perProjectMax[i] - alloc[i]);
     if (canGive > 0) {
@@ -622,47 +716,50 @@ function generateExtraSlotDistributions(
     }
   }
 
-  // Strategy 2: Distribute 1 extra to each project, round-robin
+  // Strategy 2: Round-robin distribution
   {
-    const alloc = [...baseAllocation];
-    let remaining = extraSlots;
-    let round = 0;
-    while (remaining > 0 && round < 100) {
-      for (let i = 0; i < n && remaining > 0; i++) {
-        if (alloc[i] < perProjectMax[i]) {
-          alloc[i]++;
-          remaining--;
+    if (results.length >= maxResults) {
+      // ok
+    } else {
+      const alloc = [...baseAllocation];
+      let remaining = extraSlots;
+      let round = 0;
+      while (remaining > 0 && round < 100) {
+        for (let i = 0; i < n && remaining > 0; i++) {
+          if (alloc[i] < perProjectMax[i]) {
+            alloc[i]++;
+            remaining--;
+          }
+        }
+        round++;
+      }
+      if (remaining === 0) results.push(alloc);
+    }
+  }
+
+  // Strategy 3: Give to smallest outs first
+  {
+    if (results.length < maxResults) {
+      const alloc = [...baseAllocation];
+      const indices = Array.from({ length: n }, (_, i) => i);
+      indices.sort((a, b) => baseAllocation[a] - baseAllocation[b]);
+      let remaining = extraSlots;
+      for (const i of indices) {
+        if (remaining <= 0) break;
+        const canGive = Math.min(remaining, perProjectMax[i] - alloc[i]);
+        if (canGive > 0) {
+          alloc[i] += canGive;
+          remaining -= canGive;
         }
       }
-      round++;
+      if (remaining === 0) results.push(alloc);
     }
-    if (remaining === 0) results.push(alloc);
   }
 
-  // Strategy 3: Sort by demand/outs ratio, give to highest ratio first
-  {
-    const alloc = [...baseAllocation];
-    const indices = Array.from({ length: n }, (_, i) => i);
-    indices.sort((a, b) => {
-      const ratioA = baseAllocation[a] > 0 ? 0 : 0; // already accounted for in min
-      return (baseAllocation[b]) - (baseAllocation[a]); // give to smallest outs first
-    });
-    let remaining = extraSlots;
-    for (const i of indices) {
-      if (remaining <= 0) break;
-      const canGive = Math.min(remaining, perProjectMax[i] - alloc[i]);
-      if (canGive > 0) {
-        alloc[i] += canGive;
-        remaining -= canGive;
-      }
-    }
-    if (remaining === 0) results.push(alloc);
-  }
-
-  // Strategy 4: Try distributing extra slots 1 at a time to each project
-  // (generates n variants, each giving 1 extra to a different project)
-  if (extraSlots >= 1) {
+  // Strategy 4: Try giving 1 extra to each project
+  if (extraSlots >= 1 && results.length < maxResults) {
     for (let i = 0; i < n; i++) {
+      if (results.length >= maxResults) return;
       if (baseAllocation[i] < perProjectMax[i]) {
         const alloc = [...baseAllocation];
         alloc[i]++;
@@ -708,14 +805,17 @@ export function buildPlateResult(
     };
   });
 
+  // Remap placed groups — keep the sticker dimensions from packing (may be rotated)
   const remappedGroups: PlacedGroup[] = placedGroups.map((pg) => {
     const localIdx = parseInt(pg.name.replace("p", ""));
     return {
       ...pg,
       name: projects[indices[localIdx]].name,
       projectIdx: indices[localIdx],
-      stickerWidth: projects[indices[localIdx]].stickerWidth,
-      stickerHeight: projects[indices[localIdx]].stickerHeight,
+      // IMPORTANT: Keep stickerWidth/stickerHeight from packing, NOT from project!
+      // The packing may have rotated stickers, and the shape is already adjusted.
+      // The PlacedGroup's stickerWidth/stickerHeight reflect the actual orientation
+      // on the sheet, which is what the visualization needs.
     };
   });
 
@@ -773,11 +873,19 @@ export function estimateMaxSlots(
   const bleedIn = bleedMm / 25.4;
   let maxCap = 0;
   for (const s of stickerSizes) {
-    const cellW = s.width + 2 * bleedIn;
-    const cellH = s.height + 2 * bleedIn;
-    const cols = Math.floor(sheetW / cellW);
-    const rows = Math.floor(sheetH / cellH);
-    maxCap = Math.max(maxCap, cols * rows);
+    // Original orientation
+    const cellW1 = s.width + 2 * bleedIn;
+    const cellH1 = s.height + 2 * bleedIn;
+    const cols1 = Math.floor(sheetW / cellW1);
+    const rows1 = Math.floor(sheetH / cellH1);
+    maxCap = Math.max(maxCap, cols1 * rows1);
+
+    // Rotated orientation
+    const cellW2 = s.height + 2 * bleedIn;
+    const cellH2 = s.width + 2 * bleedIn;
+    const cols2 = Math.floor(sheetW / cellW2);
+    const rows2 = Math.floor(sheetH / cellH2);
+    maxCap = Math.max(maxCap, cols2 * rows2);
   }
   return Math.max(maxCap, stickerSizes.length * 2);
 }
