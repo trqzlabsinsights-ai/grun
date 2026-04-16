@@ -95,6 +95,16 @@ export interface TwoPlateResult {
   plate2ProjectIndices: number[];
 }
 
+export interface MultiPlateResult {
+  plates: PlateResult[];
+  totalSheets: number;
+  totalProduced: number;
+  totalOverage: number;
+  materialYield: number;
+  plateCount: number;
+  plateProjectIndices: number[][];
+}
+
 export interface PlateSuggestion {
   plateCount: number;
   feasible: boolean;
@@ -108,6 +118,7 @@ export interface CalculateResponse {
   maxSlots?: number;
   singlePlateResult: PlateResult | null;
   twoPlateResult: TwoPlateResult | null;
+  multiPlateResult: MultiPlateResult | null;
   plateSuggestions?: PlateSuggestion[];
   error?: string;
 }

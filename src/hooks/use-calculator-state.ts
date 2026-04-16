@@ -60,6 +60,14 @@ export function useCalculatorState() {
         setResult(data);
         setPlateSuggestions(data.plateSuggestions || []);
         setInputOpen(false);
+        // Auto-select best tab
+        if (data.multiPlateResult && !data.twoPlateResult && !data.singlePlateResult) {
+          setActiveTab("multi");
+        } else if (data.twoPlateResult) {
+          setActiveTab("two");
+        } else if (data.singlePlateResult) {
+          setActiveTab("single");
+        }
       }
     } catch {
       setError("Failed to connect to calculation server.");
@@ -76,6 +84,7 @@ export function useCalculatorState() {
         ...(result.singlePlateResult?.allocation || []),
         ...(result.twoPlateResult?.plate1.allocation || []),
         ...(result.twoPlateResult?.plate2.allocation || []),
+        ...(result.multiPlateResult?.plates?.flatMap((p: any) => p.allocation) || []),
       ].map((a) => a.name))]
     : projects.map((p) => p.name);
 

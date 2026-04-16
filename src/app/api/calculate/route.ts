@@ -16,11 +16,12 @@ interface CalculateRequest {
   projects: { name: string; quantity: number; stickerWidth: number; stickerHeight: number }[];
 }
 
-/** Build plate suggestions from single/two plate results */
+/** Build plate suggestions from single/two/multi plate results */
 function buildPlateSuggestions(result: any): PlateSuggestion[] {
   const suggestions: PlateSuggestion[] = [];
   const single = result.singlePlateResult;
   const two = result.twoPlateResult;
+  const multi = result.multiPlateResult;
 
   // 1 plate
   if (single) {
@@ -56,16 +57,18 @@ function buildPlateSuggestions(result: any): PlateSuggestion[] {
     });
   }
 
-  // 3+ plates: estimate
-  if (single) {
+  // 3+ plates: use multi-plate result if available
+  if (multi) {
+    const runLengths = multi.plates.map((p: any, i: number) => `P${i + 1}: ${p.runLength.toLocaleString()}`).join(" | ");
+    suggestions.push({
+      plateCount: multi.plateCount,
+      feasible: true,
+      totalSheets: multi.totalSheets,
+      description: `${multi.totalSheets.toLocaleString()} sheets (${runLengths})`,
+    });
+  } else if (single) {
     suggestions.push({
       plateCount: 3,
-      feasible: true,
-      totalSheets: single.totalSheets,
-      description: "Unlikely to save sheets vs 1-2 plates",
-    });
-    suggestions.push({
-      plateCount: 4,
       feasible: true,
       totalSheets: single.totalSheets,
       description: "Unlikely to save sheets vs 1-2 plates",
@@ -77,14 +80,28 @@ function buildPlateSuggestions(result: any): PlateSuggestion[] {
       totalSheets: two.totalSheets,
       description: `Estimated ~${two.totalSheets.toLocaleString()} sheets`,
     });
+  } else {
+    suggestions.push({ plateCount: 3, feasible: false, totalSheets: 0, description: "Cannot fit" });
+  }
+
+  // 4 plates
+  if (multi && multi.plateCount >= 4) {
+    // Already covered above
+  } else if (multi && multi.plateCount === 3) {
     suggestions.push({
       plateCount: 4,
       feasible: true,
-      totalSheets: two.totalSheets,
-      description: `Estimated ~${two.totalSheets.toLocaleString()} sheets`,
+      totalSheets: multi.totalSheets,
+      description: `3 plates sufficient (${multi.totalSheets.toLocaleString()} sheets)`,
+    });
+  } else if (single) {
+    suggestions.push({
+      plateCount: 4,
+      feasible: true,
+      totalSheets: single.totalSheets,
+      description: "Unlikely to save sheets vs 1-2 plates",
     });
   } else {
-    suggestions.push({ plateCount: 3, feasible: false, totalSheets: 0, description: "Cannot fit" });
     suggestions.push({ plateCount: 4, feasible: false, totalSheets: 0, description: "Cannot fit" });
   }
 

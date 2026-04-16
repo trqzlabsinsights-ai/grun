@@ -132,6 +132,11 @@ export function ResultsSection({
               <TabsTrigger value="two" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
                 <Layers className="w-4 h-4 mr-1" /> Two {capitalize(terms.plate)}
               </TabsTrigger>
+              {result.multiPlateResult && (
+                <TabsTrigger value="multi" className="data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+                  <Layers className="w-4 h-4 mr-1" /> {result.multiPlateResult.plateCount} {capitalize(terms.plate)}s
+                </TabsTrigger>
+              )}
             </TabsList>
 
             {/* Single Plate Tab */}
@@ -285,6 +290,76 @@ export function ResultsSection({
                 </Card>
               )}
             </TabsContent>
+
+            {/* Multi Plate Tab */}
+            {result.multiPlateResult && (
+              <TabsContent value="multi" className="space-y-6 mt-4">
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <KPICard label={`${capitalize(terms.plate)}s`} value={result.multiPlateResult.plateCount.toString()} accent="text-purple-600" />
+                    <KPICard label={`Total ${capitalize(terms.sheet)}s`} value={result.multiPlateResult.totalSheets.toLocaleString()} sub={result.multiPlateResult.plates.map((p, i) => `P${i + 1}: ${p.runLength.toLocaleString()}`).join(" | ")} accent="text-purple-600" />
+                    <KPICard label="Total Produced" value={result.multiPlateResult.totalProduced.toLocaleString()} sub={`${capitalize(terms.overage)}: +${result.multiPlateResult.totalOverage.toLocaleString()}`} accent="text-gray-700" />
+                    <KPICard label="Material Yield" value={`${result.multiPlateResult.materialYield.toFixed(1)}%`} accent="text-emerald-600" />
+                  </div>
+
+                  {/* Cost info */}
+                  <Card className="bg-purple-50 border-purple-200">
+                    <CardContent className="py-4">
+                      <div className="flex items-start gap-3">
+                        <Info className="w-5 h-5 text-purple-600 mt-0.5 shrink-0" />
+                        <div className="text-sm text-gray-700">
+                          {result.multiPlateResult.plateCount} {terms.plate}s are needed for this {terms.sheet} size. Each {terms.plate} requires its own setup and run. Evaluate if the {terms.sheet} size is optimal for your projects.
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Each plate */}
+                  {result.multiPlateResult.plates.map((plate, idx) => {
+                    const plateColors = ["bg-blue-500", "bg-amber-500", "bg-purple-500", "bg-emerald-500", "bg-rose-500", "bg-cyan-500", "bg-orange-500"];
+                    return (
+                      <Card key={idx} className="bg-white border-gray-200 shadow-sm">
+                        <CardHeader>
+                          <CardTitle className="text-gray-900 text-base flex items-center gap-2">
+                            <div className={`w-3 h-3 rounded-sm ${plateColors[idx % plateColors.length]}`} />
+                            {capitalize(terms.plate)} {idx + 1} — {plate.runLength.toLocaleString()} {terms.sheet}s
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <AllocationTable allocation={plate.allocation} projectColors={PROJECT_COLORS} projectNames={projectNames} terms={terms} />
+                          <SVGPlateVisualization
+                            plateResult={plate}
+                            sheetWidth={sheetWidth}
+                            sheetHeight={sheetHeight}
+                            bleedInches={bleedInches}
+                            projectColors={PROJECT_COLORS}
+                            projectNames={projectNames}
+                            title={`${capitalize(terms.plate)} ${idx + 1} — ${plate.runLength.toLocaleString()} ${terms.sheet}s`}
+                            plateLabel={`plate${idx + 1}`}
+                            terms={terms}
+                            bleedMm={bleed}
+                          />
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+
+                  {/* Combined summary */}
+                  <Card className="bg-white border-gray-200 shadow-sm">
+                    <CardHeader>
+                      <CardTitle className="text-gray-900 text-base">Combined Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ProductionBarChart
+                        allocation={result.multiPlateResult.plates.flatMap(p => p.allocation)}
+                        projectColors={PROJECT_COLORS}
+                        projectNames={projectNames}
+                      />
+                    </CardContent>
+                  </Card>
+                </>
+              </TabsContent>
+            )}
           </Tabs>
         </>
       )}

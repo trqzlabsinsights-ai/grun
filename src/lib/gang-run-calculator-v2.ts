@@ -69,6 +69,16 @@ export interface TwoPlateResult {
   plate2ProjectIndices: number[];
 }
 
+export interface MultiPlateResult {
+  plates: PlateResult[];
+  totalSheets: number;
+  totalProduced: number;
+  totalOverage: number;
+  materialYield: number;
+  plateCount: number;
+  plateProjectIndices: number[][];
+}
+
 export interface CapacityResult {
   cols: number;
   rows: number;
@@ -465,7 +475,7 @@ function findValidPacking(
 
   let bestPacking: { shapes: GroupShape[]; placedGroups: PlacedGroup[]; usedArea: number } | null = null;
   let attempts = 0;
-  const maxAttempts = 200000;
+  const maxAttempts = 50000;
 
   function tryCombo(idx: number, currentGroups: GroupWithDims[]): void {
     if (attempts >= maxAttempts) return;
@@ -533,7 +543,9 @@ export function findBestAllocationWithPacking(
     const cols2 = Math.floor(sheetW / cellW2);
     const rows2 = Math.floor(sheetH / cellH2);
     const cap2 = cols2 * rows2;
-    return Math.max(cap1, cap2, minOuts);
+    // Cap at grid-based max to avoid exploring huge outs values that create
+    // too many L-values and allocation combos in the search
+    return Math.max(Math.min(Math.max(cap1, cap2), maxSlots), minOuts);
   });
 
   // ── STEP 1: Compute all critical L values ──────────────────────────────
@@ -557,9 +569,12 @@ export function findBestAllocationWithPacking(
   let globalBestL = Infinity;
   let globalBestResult: AllocationWithPacking | null = null;
   let globalBestYield = 0;
+  const searchStartTime = Date.now();
+  const MAX_SEARCH_TIME_MS = 8000; // 8 second timeout for L-search
 
   for (const L of sortedLs) {
     if (L >= globalBestL) break;
+    if (Date.now() - searchStartTime > MAX_SEARCH_TIME_MS) break;
 
     const minAllocation = demands.map((d) => Math.max(minOuts, Math.ceil(d / L)));
     const minTotalOuts = minAllocation.reduce((s, o) => s + o, 0);
@@ -634,7 +649,7 @@ export function findBestAllocationWithPacking(
     let bestL = Infinity;
     let bestResult: AllocationWithPacking | null = null;
     let totalSearchIterations = 0;
-    const MAX_SEARCH_ITERATIONS = 500000;
+    const MAX_SEARCH_ITERATIONS = 100000;
 
     for (let totalOuts = maxSlots; totalOuts >= minTotal; totalOuts--) {
       if (totalSearchIterations >= MAX_SEARCH_ITERATIONS) break;
@@ -980,13 +995,12 @@ export function estimateMaxSlots(
     areaBasedCap = Math.max(areaBasedCap, Math.floor(sheetArea / minCellArea));
   }
 
-  // Use the larger of grid-based or area-based, with generous headroom.
-  // Multiply by 1.4 to give the search algorithm room to explore allocations
-  // that exceed simple estimates but can fit with MaxRect 2D packing.
-  // This is critical for finding better splits in two-plate optimization
-  // where projects need to share space in non-obvious arrangements.
+  // Use the larger of grid-based or area-based, with moderate headroom.
+  // The two-plate search needs some extra room beyond the grid estimate
+  // to find better splits (e.g., [a,b,d]|[c,e,f,g] needs outs>18 on sub-plates).
+  // But too much headroom makes the search slow.
   const estimatedCap = Math.max(gridBasedCap, areaBasedCap);
-  const withHeadroom = Math.ceil(estimatedCap * 1.4);
+  const withHeadroom = Math.ceil(estimatedCap * 1.15);
   return Math.max(withHeadroom, stickerSizes.length * 2);
 }
 
@@ -1007,8 +1021,12 @@ export function findBestTwoPlate(
   let bestTotal = Infinity;
   let bestResult: TwoPlateResult | null = null;
 
+  const startTime = Date.now();
+  const MAX_TIME_MS = 30000; // 30 second timeout for two-plate search
+
   const totalMasks = 1 << n;
   for (let mask = 1; mask < totalMasks - 1; mask++) {
+    if (Date.now() - startTime > MAX_TIME_MS) break;
     if (!(mask & 1)) continue;
 
     const plate1Indices: number[] = [];
@@ -1063,6 +1081,139 @@ export function findBestTwoPlate(
   return bestResult;
 }
 
+// ── Multi-Plate Optimization (3+ plates) ────────────────────────────────
+// When 1 or 2 plates aren't enough (small sheets, many projects),
+// use First Fit Decreasing bin-packing to distribute projects across plates.
+
+export function findBestMultiPlate(
+  projects: ProjectInput[],
+  maxSlots: number,
+  sheetW: number,
+  sheetH: number,
+  bleedIn: number
+): MultiPlateResult | null {
+  const n = projects.length;
+  if (n === 0) return null;
+
+  const demands = projects.map((p) => p.quantity);
+  const stickerSizes = projects.map((p) => ({ width: p.stickerWidth, height: p.stickerHeight }));
+
+  // Strategy: try different plate groupings using First Fit Decreasing
+  // Sort projects by quantity (descending) — largest projects first tend to pack better
+  const indices = Array.from({ length: n }, (_, i) => i);
+
+  // Try multiple orderings to find the best grouping
+  const orderings: number[][] = [
+    [...indices].sort((a, b) => demands[b] - demands[a]),  // Largest quantity first
+    [...indices].sort((a, b) => demands[a] - demands[b]),  // Smallest quantity first
+    [...indices],                                            // Original order
+  ];
+
+  let bestResult: MultiPlateResult | null = null;
+
+  for (const ordering of orderings) {
+    const result = tryMultiPlateOrdering(ordering, projects, demands, stickerSizes, maxSlots, sheetW, sheetH, bleedIn);
+    if (result) {
+      if (!bestResult || result.totalSheets < bestResult.totalSheets) {
+        bestResult = result;
+      }
+    }
+  }
+
+  return bestResult;
+}
+
+function tryMultiPlateOrdering(
+  ordering: number[],
+  projects: ProjectInput[],
+  demands: number[],
+  stickerSizes: { width: number; height: number }[],
+  maxSlots: number,
+  sheetW: number,
+  sheetH: number,
+  bleedIn: number
+): MultiPlateResult | null {
+  // First Fit Decreasing: assign each project to the first plate that can fit it,
+  // or create a new plate if none can.
+  // Then optimize each plate independently.
+
+  const startTime = Date.now();
+  const MAX_TIME_MS = 15000; // 15 second timeout
+
+  // Start by trying to pack all projects into as few plates as possible
+  // Each plate is a list of project indices
+  const plates: number[][] = [];
+
+  for (const projIdx of ordering) {
+    // Timeout check
+    if (Date.now() - startTime > MAX_TIME_MS) return null;
+
+    let placed = false;
+
+    // Try to add this project to an existing plate
+    for (let p = 0; p < plates.length; p++) {
+      if (Date.now() - startTime > MAX_TIME_MS) return null;
+      const testPlate = [...plates[p], projIdx];
+      // Quick pre-check: can these projects even fit by area?
+      const totalMinOuts = testPlate.length * 2;
+      if (totalMinOuts > maxSlots) continue;
+      const pDemands = testPlate.map(i => demands[i]);
+      const pSizes = testPlate.map(i => stickerSizes[i]);
+      const result = findBestAllocationWithPacking(pDemands, pSizes, sheetW, sheetH, bleedIn, maxSlots);
+      if (result) {
+        plates[p] = testPlate;
+        placed = true;
+        break;
+      }
+    }
+
+    if (!placed) {
+      // Create a new plate for this project
+      plates.push([projIdx]);
+    }
+  }
+
+  if (plates.length === 0) return null;
+
+  // Now optimize each plate and compute totals
+  const plateResults: PlateResult[] = [];
+  const plateProjectIndices: number[][] = [];
+  let totalSheets = 0;
+  let totalProduced = 0;
+  let totalOrderQty = 0;
+  let totalStickerArea = 0;
+
+  for (const plateIndices of plates) {
+    const pDemands = plateIndices.map(i => demands[i]);
+    const pSizes = plateIndices.map(i => stickerSizes[i]);
+    const result = findBestAllocationWithPacking(pDemands, pSizes, sheetW, sheetH, bleedIn, maxSlots);
+    if (!result) return null; // Should not happen since we tested during assignment
+
+    const plateRes = buildPlateResult(projects, plateIndices, result.allocation, result.shapes, result.runLength, sheetW, sheetH, bleedIn, result.placedGroups);
+    plateResults.push(plateRes);
+    plateProjectIndices.push(plateIndices);
+
+    totalSheets += plateRes.runLength;
+    totalProduced += plateRes.totalProduced;
+    totalOrderQty += plateRes.allocation.reduce((s, a) => s + a.quantity, 0);
+    totalStickerArea += plateRes.allocation.reduce((s, a) => s + a.produced * a.stickerWidth * a.stickerHeight, 0);
+  }
+
+  const sheetArea = sheetW * sheetH;
+  const totalSheetArea = totalSheets * sheetArea;
+  const materialYield = totalSheetArea > 0 ? (totalStickerArea / totalSheetArea) * 100 : 0;
+
+  return {
+    plates: plateResults,
+    totalSheets,
+    totalProduced,
+    totalOverage: totalProduced - totalOrderQty,
+    materialYield,
+    plateCount: plates.length,
+    plateProjectIndices,
+  };
+}
+
 // ── Full Calculation ───────────────────────────────────────────────────────
 
 export interface MultiSizeCalculateResponse {
@@ -1070,6 +1221,7 @@ export interface MultiSizeCalculateResponse {
   maxSlots: number;
   singlePlateResult: PlateResult | null;
   twoPlateResult: TwoPlateResult | null;
+  multiPlateResult: MultiPlateResult | null;
   error?: string;
 }
 
@@ -1082,12 +1234,12 @@ export function calculateMultiSize(req: {
   const { sheetWidth, sheetHeight, bleed, projects: rawProjects } = req;
 
   if (!sheetWidth || !sheetHeight || bleed == null) {
-    return { capacity: null, maxSlots: 0, singlePlateResult: null, twoPlateResult: null, error: "Missing required dimension parameters." };
+    return { capacity: null, maxSlots: 0, singlePlateResult: null, twoPlateResult: null, multiPlateResult: null, error: "Missing required dimension parameters." };
   }
 
   const projects = rawProjects.filter((p) => p.quantity > 0 && p.stickerWidth > 0 && p.stickerHeight > 0);
   if (projects.length === 0) {
-    return { capacity: null, maxSlots: 0, singlePlateResult: null, twoPlateResult: null, error: "No projects with positive quantities and valid sticker sizes." };
+    return { capacity: null, maxSlots: 0, singlePlateResult: null, twoPlateResult: null, multiPlateResult: null, error: "No projects with positive quantities and valid sticker sizes." };
   }
 
   const bleedIn = bleed / 25.4;
@@ -1096,12 +1248,24 @@ export function calculateMultiSize(req: {
 
   const maxSlots = estimateMaxSlots(sheetWidth, sheetHeight, projects.map((p) => ({ width: p.stickerWidth, height: p.stickerHeight })), bleed);
 
-  // Single plate optimization
+  // Grid-based maxSlots (conservative, fast for single-plate with many projects)
+  const gridMaxSlots = (() => {
+    const bi = bleed / 25.4;
+    let cap = 0;
+    for (const p of projects) {
+      const c1 = Math.floor(sheetWidth / (p.stickerWidth + 2 * bi)) * Math.floor(sheetHeight / (p.stickerHeight + 2 * bi));
+      const c2 = Math.floor(sheetWidth / (p.stickerHeight + 2 * bi)) * Math.floor(sheetHeight / (p.stickerWidth + 2 * bi));
+      cap = Math.max(cap, c1, c2);
+    }
+    return Math.max(cap, projects.length * 2);
+  })();
+
+  // Single plate optimization — use grid-based maxSlots for speed
   let singlePlateResult: PlateResult | null = null;
-  if (projects.length * 2 <= maxSlots) {
+  if (projects.length * 2 <= gridMaxSlots) {
     const demands = projects.map((p) => p.quantity);
     const stickerSizes = projects.map((p) => ({ width: p.stickerWidth, height: p.stickerHeight }));
-    const result = findBestAllocationWithPacking(demands, stickerSizes, sheetWidth, sheetHeight, bleedIn, maxSlots);
+    const result = findBestAllocationWithPacking(demands, stickerSizes, sheetWidth, sheetHeight, bleedIn, gridMaxSlots);
     if (result) {
       singlePlateResult = buildPlateResult(projects, projects.map((_, i) => i), result.allocation, result.shapes, result.runLength, sheetWidth, sheetHeight, bleedIn, result.placedGroups);
     }
@@ -1117,5 +1281,12 @@ export function calculateMultiSize(req: {
     twoPlateResult.sheetsSaved = singlePlateResult.totalSheets - twoPlateResult.totalSheets;
   }
 
-  return { capacity, maxSlots, singlePlateResult, twoPlateResult };
+  // Multi-plate optimization (3+ plates) — fallback when 1 or 2 plates aren't enough
+  let multiPlateResult: MultiPlateResult | null = null;
+  if (!singlePlateResult && !twoPlateResult) {
+    // Neither 1 nor 2 plates work — need 3+ plates
+    multiPlateResult = findBestMultiPlate(projects, maxSlots, sheetWidth, sheetHeight, bleedIn);
+  }
+
+  return { capacity, maxSlots, singlePlateResult, twoPlateResult, multiPlateResult };
 }
