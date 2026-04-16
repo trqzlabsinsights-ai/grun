@@ -1,6 +1,4 @@
-// ── Shared Types for the Multi-Industry Packing Optimizer ────────────────
-
-export type PackMode = "rect-same" | "rect-mixed" | "circular" | "custom";
+// ── Shared Types for GangRun MVP (rect-mixed only) ────────────────────────
 
 export type IndustryKey =
   | "sticker-printing"
@@ -34,12 +32,6 @@ export interface IndustryPreset {
     sheetHeight: number;
     bleed: number;
   };
-  modeDescriptions: {
-    "rect-same": string;
-    "rect-mixed": string;
-    circular: string;
-    custom: string;
-  };
 }
 
 export interface ProjectInput {
@@ -49,29 +41,9 @@ export interface ProjectInput {
   stickerHeight: number;
 }
 
-export interface CircleProjectInput {
-  name: string;
-  quantity: number;
-  diameter: number;
-}
-
-export interface CustomProjectInput {
-  name: string;
-  quantity: number;
-  stickerWidth: number;
-  stickerHeight: number;
-  sides?: number;  // optional per-project sides (overridden by global selector)
-}
-
 export interface GroupShape {
   w: number;
   h: number;
-}
-
-export interface TessPosition {
-  x: number;
-  y: number;
-  flip: boolean;
 }
 
 export interface PlacedGroup {
@@ -86,31 +58,19 @@ export interface PlacedGroup {
   stickerWidth?: number;
   stickerHeight?: number;
   itemType?: string;
-  diameter?: number;
-  circles?: { cx: number; cy: number }[];
   bleedIn?: number;
-  sides?: number;       // number of polygon sides
-  vertices?: { x: number; y: number }[];
-  flipVertices?: { x: number; y: number }[];
-  tessellated?: boolean;
-  tessPositions?: TessPosition[];
-  sheets?: number;       // number of sheets dedicated to this project (custom mode)
 }
 
 export interface AllocationEntry {
   name: string;
   quantity: number;
   outs: number;
-  sheets?: number;       // number of sheets dedicated to this project (custom mode)
   produced: number;
   overage: number;
   overagePct: number;
   groupShape: GroupShape;
   stickerWidth?: number;
   stickerHeight?: number;
-  diameter?: number;
-  sides?: number;       // number of polygon sides
-  tessellated?: boolean;
 }
 
 export interface PlateResult {
@@ -143,7 +103,7 @@ export interface PlateSuggestion {
 }
 
 export interface CalculateResponse {
-  mode?: PackMode;
+  mode?: string;
   capacity: Record<string, unknown> | null;
   maxSlots?: number;
   singlePlateResult: PlateResult | null;

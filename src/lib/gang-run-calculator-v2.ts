@@ -526,7 +526,9 @@ export function findBestAllocationWithPacking(
   const totalsToTry: number[] = [];
 
   // Add totals derived from balancing run lengths
-  for (let L = 1; L <= Math.max(...demands); L++) {
+  // Cap L to prevent infinite loops with huge demands (e.g. 6844)
+  const maxL = Math.min(Math.max(...demands), 5000);
+  for (let L = 1; L <= maxL; L++) {
     let total = 0;
     for (let i = 0; i < n; i++) {
       total += Math.max(minOuts, Math.ceil(demands[i] / L));
@@ -534,7 +536,7 @@ export function findBestAllocationWithPacking(
     if (total >= minTotal && total <= maxSlots && !totalsToTry.includes(total)) {
       totalsToTry.push(total);
     }
-    if (total > maxSlots) break; // further L values will only give smaller totals
+    if (total <= minTotal) break; // once we hit min, further L gives same or min
   }
 
   // Also add some totals around the middle
@@ -557,14 +559,19 @@ export function findBestAllocationWithPacking(
 
   let bestL = Infinity;
   let bestResult: AllocationWithPacking | null = null;
+  let totalSearchIterations = 0;
+  const MAX_SEARCH_ITERATIONS = 200000;
 
   for (const totalOuts of totalsToTry) {
     if (totalOuts < minTotal || totalOuts > maxSlots) continue;
+    if (totalSearchIterations >= MAX_SEARCH_ITERATIONS) break;
 
     const current = new Array(n).fill(0);
 
     function search(idx: number, remaining: number): void {
+      if (totalSearchIterations >= MAX_SEARCH_ITERATIONS) return;
       if (idx === n - 1) {
+        totalSearchIterations++;
         current[idx] = remaining;
         if (remaining < minOuts) return;
         if (remaining > perProjectMax[idx]) return;
@@ -602,6 +609,7 @@ export function findBestAllocationWithPacking(
       const minRemaining = (n - idx - 1) * minOuts;
       const maxVal = Math.min(remaining - minRemaining, perProjectMax[idx]);
       for (let val = minOuts; val <= maxVal; val++) {
+        if (totalSearchIterations >= MAX_SEARCH_ITERATIONS) return;
         current[idx] = val;
         let partialL = 0;
         for (let i = 0; i <= idx; i++) {
