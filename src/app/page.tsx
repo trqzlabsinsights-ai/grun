@@ -4,7 +4,7 @@ import { useCalculatorState } from "@/hooks/use-calculator-state";
 import { CalculatorHeader } from "@/components/calculator/calculator-header";
 import { InputPanel } from "@/components/calculator/input-panel";
 import { ResultsSection } from "@/components/calculator/results-section";
-import { LayoutGrid } from "lucide-react";
+import { LayoutGrid, Coffee } from "lucide-react";
 
 export default function GangRunCalculator() {
   const state = useCalculatorState();
@@ -72,15 +72,31 @@ export default function GangRunCalculator() {
 
       {/* Footer */}
       <footer className="border-t border-gray-200 bg-white py-8 mt-auto">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500">
-          <div className="flex items-center gap-2">
-            <LayoutGrid className="w-[18px] h-[18px] text-blue-500" />
-            <span className="font-semibold text-gray-700">GangRun</span>
-          </div>
-          <p>&copy; 2026 GangRun Plate Optimization. All rights reserved.</p>
-          <div className="flex gap-4">
-            <a href="#" className="hover:text-blue-600 transition-colors">Privacy</a>
-            <a href="#" className="hover:text-blue-600 transition-colors">Terms</a>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col items-center gap-6">
+          {/* Buy Me a Coffee */}
+          <a
+            href="https://buymeacoffee.com/gangrun"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-full text-sm font-medium hover:bg-amber-100 hover:border-amber-300 transition-all group"
+          >
+            <Coffee className="w-4 h-4 text-amber-600 group-hover:text-amber-700 transition-colors" />
+            If you find this tool useful, buy us a coffee!
+          </a>
+
+          {/* Bottom row */}
+          <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-4 text-sm text-gray-500">
+            <div className="flex items-center gap-2">
+              <LayoutGrid className="w-[18px] h-[18px] text-blue-500" />
+              <span className="font-semibold text-gray-700">GangRun</span>
+            </div>
+            <p>&copy; 2026 GangRun Plate Optimization. All rights reserved.</p>
+            <div className="flex gap-4">
+              <a href="/privacy" className="hover:text-blue-600 transition-colors">Privacy</a>
+              <a href="/terms" className="hover:text-blue-600 transition-colors">Terms</a>
+              <a href="/docs" className="hover:text-blue-600 transition-colors">Docs</a>
+              <a href="/support" className="hover:text-blue-600 transition-colors">Support</a>
+            </div>
           </div>
         </div>
       </footer>

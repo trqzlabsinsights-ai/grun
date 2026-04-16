@@ -247,7 +247,11 @@ export function InputPanel({
               <Button onClick={onCalculate} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8" size="lg">
                 {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Optimizing...</> : <><Calculator className="w-4 h-4 mr-2" /> Calculate</>}
               </Button>
-              {loading && <span className="text-sm text-gray-500">Running optimization algorithm...</span>}
+              {loading && (
+                <div className="text-sm text-gray-500 max-w-md">
+                  <span className="font-medium text-gray-600">Quality takes a few extra clock cycles.</span> Our algorithm is crunching the numbers right now to deliver an optimized result tailored just for you.
+                </div>
+              )}
             </div>
           </CardContent>
         </CollapsibleContent>
