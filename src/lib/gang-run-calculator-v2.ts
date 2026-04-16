@@ -422,6 +422,113 @@ function tryPackGroups(
   return null;
 }
 
+// ── Fill Remaining Space ──────────────────────────────────────────────────
+// After placing the main allocation groups, scan the free rectangles on the
+// sheet and try to place additional bonus groups from any project.
+// This maximizes space utilization — critical in gang running.
+
+export function fillRemainingSpace(
+  placedGroups: PlacedGroup[],
+  sheetW: number,
+  sheetH: number,
+  bleedIn: number,
+  projects: { name: string; projectIdx: number; outs: number; stickerWidth: number; stickerHeight: number }[]
+): PlacedGroup[] {
+  // Reconstruct free rectangles from placed groups
+  let freeRects: MaxRect[] = [{ x: 0, y: 0, width: sheetW, height: sheetH }];
+
+  for (const pg of placedGroups) {
+    freeRects = splitFreeRects(freeRects, pg.x, pg.y, pg.width, pg.height);
+    freeRects = pruneFreeRects(freeRects);
+  }
+
+  // For each project, try to place additional bonus groups in free space
+  const bonusGroups: PlacedGroup[] = [];
+  let improved = true;
+  let iterations = 0;
+  const MAX_ITERATIONS = 50; // Prevent infinite loops
+
+  while (improved && iterations < MAX_ITERATIONS) {
+    improved = false;
+    iterations++;
+
+    for (const proj of projects) {
+      // Try smaller group sizes first (more likely to fit in narrow strips)
+      // Start from 1 sticker up to the project's outs
+      const bonusOutsOptions: number[] = [];
+      for (let o = 1; o <= Math.min(proj.outs, 12); o++) {
+        bonusOutsOptions.push(o);
+      }
+      // Also try the project's full outs in case it fits as a secondary group
+      if (proj.outs > 12) bonusOutsOptions.push(proj.outs);
+
+      for (const bonusOuts of bonusOutsOptions) {
+        const bonusShapes = getGroupShapes(bonusOuts);
+
+        for (const shape of bonusShapes) {
+          // Try both orientations
+          const orientations: { sw: number; sh: number }[] = [];
+          orientations.push({ sw: proj.stickerWidth, sh: proj.stickerHeight });
+          if (Math.abs(proj.stickerWidth - proj.stickerHeight) > 0.001) {
+            orientations.push({ sw: proj.stickerHeight, sh: proj.stickerWidth });
+          }
+
+          for (const orient of orientations) {
+            const dims = groupDimensions(shape, orient.sw, orient.sh, bleedIn);
+            const result = findBestFreeRect(freeRects, dims.width, dims.height, sheetW, sheetH);
+            if (result) {
+              let placedW: number, placedH: number;
+              let placedShape: GroupShape;
+              let placedStickerW: number, placedStickerH: number;
+
+              if (result.rotated) {
+                placedW = dims.height;
+                placedH = dims.width;
+                placedShape = { w: shape.h, h: shape.w };
+                placedStickerW = orient.sh;
+                placedStickerH = orient.sw;
+              } else {
+                placedW = dims.width;
+                placedH = dims.height;
+                placedShape = { ...shape };
+                placedStickerW = orient.sw;
+                placedStickerH = orient.sh;
+              }
+
+              // Boundary check
+              if (result.x + placedW > sheetW + 0.001 || result.y + placedH > sheetH + 0.001) continue;
+
+              const bonusGroup: PlacedGroup = {
+                name: proj.name,
+                projectIdx: proj.projectIdx,
+                shape: placedShape,
+                outs: bonusOuts,
+                x: result.x,
+                y: result.y,
+                width: placedW,
+                height: placedH,
+                stickerWidth: placedStickerW,
+                stickerHeight: placedStickerH,
+              };
+
+              bonusGroups.push(bonusGroup);
+              freeRects = splitFreeRects(freeRects, result.x, result.y, placedW, placedH);
+              freeRects = pruneFreeRects(freeRects);
+              improved = true;
+              break; // Move to next project after placing one bonus group
+            }
+          }
+          if (improved) break;
+        }
+        if (improved) break;
+      }
+      if (improved) break; // Restart from the beginning to try all projects again
+    }
+  }
+
+  return [...placedGroups, ...bonusGroups];
+}
+
 // ── Shape Combination Packing (with both sticker orientations) ────────────
 // Each project = ONE group. No orphan stickers.
 
@@ -537,15 +644,20 @@ export function findBestAllocationWithPacking(
     const cellH1 = s.height + 2 * bleedIn;
     const cols1 = Math.floor(sheetW / cellW1);
     const rows1 = Math.floor(sheetH / cellH1);
-    const cap1 = cols1 * rows1;
+    const gridCap1 = cols1 * rows1;
     const cellW2 = s.height + 2 * bleedIn;
     const cellH2 = s.width + 2 * bleedIn;
     const cols2 = Math.floor(sheetW / cellW2);
     const rows2 = Math.floor(sheetH / cellH2);
-    const cap2 = cols2 * rows2;
-    // Cap at grid-based max to avoid exploring huge outs values that create
-    // too many L-values and allocation combos in the search
-    return Math.max(Math.min(Math.max(cap1, cap2), maxSlots), minOuts);
+    const gridCap2 = cols2 * rows2;
+    const gridCap = Math.max(gridCap1, gridCap2);
+    // Area-based estimate: allows non-grid layouts (e.g., 2×5 rotated layout)
+    // which can fit more stickers than the rigid grid suggests
+    const minCellArea = Math.min(cellW1 * cellH1, cellW2 * cellH2);
+    const areaCap = Math.floor((sheetW * sheetH) / minCellArea);
+    // Use the larger of grid or area estimate, with 20% headroom for mixed shapes
+    const estimatedCap = Math.ceil(Math.max(gridCap, areaCap) * 1.2);
+    return Math.max(Math.min(estimatedCap, maxSlots), minOuts);
   });
 
   // ── STEP 1: Compute all critical L values ──────────────────────────────
@@ -719,8 +831,8 @@ export function findBestAllocationWithPacking(
 }
 
 // ── Yield Maximization ───────────────────────────────────────────────────
-// Greedily increase each project's outs while keeping the same run length.
-// This fills the sheet better without increasing total sheets.
+// Aggressively increase each project's outs to fill the sheet better.
+// Strategy: first try jumping to max, then binary-search down if needed.
 
 function maximizeYield(
   bestResult: AllocationWithPacking | null,
@@ -738,20 +850,59 @@ function maximizeYield(
   const targetL = bestResult.runLength;
   let currentShapes = [...bestResult.shapes];
   let currentPlaced = bestResult.placedGroups;
-  let improved = true;
 
-  while (improved) {
+  // Phase 1: Try jumping each project to its max outs (binary search down if needed)
+  for (let i = 0; i < n; i++) {
+    const maxOuts = perProjectMax[i];
+    if (allocation[i] >= maxOuts) continue;
+
+    // Try the maximum first
+    let bestOuts = allocation[i];
+    let lo = allocation[i] + 1;
+    let hi = maxOuts;
+
+    while (lo <= hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      const testAlloc = [...allocation];
+      testAlloc[i] = mid;
+
+      const allocInfo = testAlloc.map((outs, j) => ({
+        name: `p${j}`, projectIdx: j, outs,
+        stickerWidth: stickerSizes[j].width, stickerHeight: stickerSizes[j].height,
+      }));
+
+      const packing = findValidPacking(allocInfo, sheetW, sheetH, bleedIn);
+      if (packing) {
+        let newL = 0;
+        for (let j = 0; j < n; j++) newL = Math.max(newL, Math.ceil(demands[j] / testAlloc[j]));
+        if (newL <= targetL) {
+          bestOuts = mid;
+          currentShapes = packing.shapes;
+          currentPlaced = packing.placedGroups;
+          lo = mid + 1; // Try even higher
+        } else {
+          hi = mid - 1; // Too high, try lower
+        }
+      } else {
+        hi = mid - 1; // Doesn't pack, try lower
+      }
+    }
+
+    if (bestOuts > allocation[i]) {
+      allocation[i] = bestOuts;
+    }
+  }
+
+  // Phase 2: Greedy +1 passes to catch any remaining improvements
+  let improved = true;
+  let passCount = 0;
+  while (improved && passCount < 3) {
     improved = false;
+    passCount++;
     for (let i = 0; i < n; i++) {
-      // Try increasing this project's outs by 1
       if (allocation[i] >= perProjectMax[i]) continue;
 
       const newOuts = allocation[i] + 1;
-
-      // Check that increasing outs doesn't increase the run length
-      if (Math.ceil(demands[i] / newOuts) > targetL) continue;
-      // Actually, since we're increasing outs, ceil(d/q) can only decrease or stay same
-      // So this check always passes, but let's keep it for safety
 
       const testAlloc = [...allocation];
       testAlloc[i] = newOuts;
@@ -763,7 +914,6 @@ function maximizeYield(
 
       const packing = findValidPacking(allocInfo, sheetW, sheetH, bleedIn);
       if (packing) {
-        // Check that run length hasn't increased
         let newL = 0;
         for (let j = 0; j < n; j++) newL = Math.max(newL, Math.ceil(demands[j] / testAlloc[j]));
         if (newL <= targetL) {
@@ -882,12 +1032,41 @@ export function buildPlateResult(
   bleedIn: number,
   placedGroups: PlacedGroup[]
 ): PlateResult {
-  const totalProduced = allocation.reduce((sum, outs) => sum + outs * runLength, 0);
+  // ── Fill remaining space on the sheet with bonus groups ──────────────────
+  // This is critical for gang running: every inch of sheet space should be used.
+  // After the main allocation is placed, try to fill remaining free rectangles
+  // with additional groups from any project on this plate.
 
+  const projInfo = indices.map((projIdx, i) => ({
+    name: `p${i}`,
+    projectIdx: i,
+    outs: allocation[i],
+    stickerWidth: projects[projIdx].stickerWidth,
+    stickerHeight: projects[projIdx].stickerHeight,
+  }));
+
+  const filledGroups = fillRemainingSpace(placedGroups, sheetW, sheetH, bleedIn, projInfo);
+
+  // Safety: filter out any placed groups that exceed sheet boundaries
+  const validGroups = filledGroups.filter((pg) => {
+    return pg.x + pg.width <= sheetW + 0.01 && pg.y + pg.height <= sheetH + 0.01;
+  });
+
+  // Calculate effective outs per project (main + bonus groups)
+  // Each placed group for a project adds its outs to the total outs per sheet
+  const effectiveOuts: number[] = new Array(indices.length).fill(0);
+  for (const pg of validGroups) {
+    const localIdx = parseInt(pg.name.replace("p", ""));
+    if (localIdx >= 0 && localIdx < indices.length) {
+      effectiveOuts[localIdx] += pg.outs;
+    }
+  }
+
+  // Use effective outs (which include bonus groups) for production calculation
   let totalOrderQty = 0;
   const allocationEntries: AllocationEntry[] = indices.map((projIdx, i) => {
     const qty = projects[projIdx].quantity;
-    const outs = allocation[i];
+    const outs = effectiveOuts[i];
     const produced = outs * runLength;
     const overage = produced - qty;
     const overagePct = qty > 0 ? (overage / qty) * 100 : 0;
@@ -905,10 +1084,7 @@ export function buildPlateResult(
     };
   });
 
-  // Safety: filter out any placed groups that exceed sheet boundaries
-  const validGroups = placedGroups.filter((pg) => {
-    return pg.x + pg.width <= sheetW + 0.01 && pg.y + pg.height <= sheetH + 0.01;
-  });
+  const totalProduced = allocationEntries.reduce((sum, a) => sum + a.produced, 0);
 
   const remappedGroups: PlacedGroup[] = validGroups.map((pg) => {
     const localIdx = parseInt(pg.name.replace("p", ""));
@@ -1019,15 +1195,27 @@ export function findBestTwoPlate(
   const demands = projects.map((p) => p.quantity);
   const stickerSizes = projects.map((p) => ({ width: p.stickerWidth, height: p.stickerHeight }));
   let bestTotal = Infinity;
+  let bestYield = 0; // Track yield for tiebreaking
   let bestResult: TwoPlateResult | null = null;
 
   const startTime = Date.now();
   const MAX_TIME_MS = 30000; // 30 second timeout for two-plate search
 
+  // ── Generate all valid plate splits ──────────────────────────────────────
+  // Key fix: try ALL 2^n - 2 splits (not just ones where project 0 is on plate 1)
+  // This ensures that when all projects have identical dimensions, the algorithm
+  // can find the optimal split that puts the highest-quantity project on its own plate.
+  //
+  // Also add quantity-weighted priority splits for same-dimension projects:
+  // When all projects have the same sticker size, splitting the highest-quantity
+  // project onto its own plate gives the best flexibility and space utilization.
+
   const totalMasks = 1 << n;
+  // Track which splits we've tried to avoid duplicates (mask vs ~mask)
+  const triedSplits = new Set<string>();
+
   for (let mask = 1; mask < totalMasks - 1; mask++) {
     if (Date.now() - startTime > MAX_TIME_MS) break;
-    if (!(mask & 1)) continue;
 
     const plate1Indices: number[] = [];
     const plate2Indices: number[] = [];
@@ -1038,6 +1226,13 @@ export function findBestTwoPlate(
 
     if (plate1Indices.length === 0 || plate2Indices.length === 0) continue;
     if (plate1Indices.length * 2 > maxSlots || plate2Indices.length * 2 > maxSlots) continue;
+
+    // Avoid trying mirror splits (e.g., [a,b]|cd and [c,d]|[a,b] are the same)
+    // Use canonical form: the split whose plate1 has the smaller first index
+    const splitKey = plate1Indices.join(",") + "|" + plate2Indices.join(",");
+    const mirrorKey = plate2Indices.join(",") + "|" + plate1Indices.join(",");
+    if (triedSplits.has(splitKey) || triedSplits.has(mirrorKey)) continue;
+    triedSplits.add(splitKey);
 
     const p1Demands = plate1Indices.map((i) => demands[i]);
     const p1StickerSizes = plate1Indices.map((i) => stickerSizes[i]);
@@ -1050,32 +1245,133 @@ export function findBestTwoPlate(
     if (!p2Result) continue;
 
     const totalSheets = p1Result.runLength + p2Result.runLength;
-    if (totalSheets >= bestTotal) continue;
 
-    bestTotal = totalSheets;
-
-    const plate1Res = buildPlateResult(projects, plate1Indices, p1Result.allocation, p1Result.shapes, p1Result.runLength, sheetW, sheetH, bleedIn, p1Result.placedGroups);
-    const plate2Res = buildPlateResult(projects, plate2Indices, p2Result.allocation, p2Result.shapes, p2Result.runLength, sheetW, sheetH, bleedIn, p2Result.placedGroups);
-
-    const combinedProduced = plate1Res.totalProduced + plate2Res.totalProduced;
-    const totalOrderQty = demands.reduce((s, q) => s + q, 0);
-
-    let totalStickerArea = 0;
-    for (const alloc of [...plate1Res.allocation, ...plate2Res.allocation]) {
-      totalStickerArea += alloc.produced * alloc.stickerWidth * alloc.stickerHeight;
-    }
+    // Compute material yield for tiebreaking (weighted average of per-plate yields)
     const sheetArea = sheetW * sheetH;
-    const totalSheetArea = totalSheets * sheetArea;
-    const materialYield = totalSheetArea > 0 ? (totalStickerArea / totalSheetArea) * 100 : 0;
+    let p1StickerArea = 0;
+    for (let i = 0; i < p1Result.allocation.length; i++) {
+      p1StickerArea += p1Result.allocation[i] * p1StickerSizes[i].width * p1StickerSizes[i].height;
+    }
+    let p2StickerArea = 0;
+    for (let i = 0; i < p2Result.allocation.length; i++) {
+      p2StickerArea += p2Result.allocation[i] * p2StickerSizes[i].width * p2StickerSizes[i].height;
+    }
+    // Weighted yield: average yield across all sheets
+    const p1Yield = (p1StickerArea * p1Result.runLength) / (sheetArea * p1Result.runLength) * 100;
+    const p2Yield = (p2StickerArea * p2Result.runLength) / (sheetArea * p2Result.runLength) * 100;
+    const totalStickerAreaAll = p1StickerArea * p1Result.runLength + p2StickerArea * p2Result.runLength;
+    const totalSheetArea = sheetArea * totalSheets;
+    const materialYield = totalSheetArea > 0 ? (totalStickerAreaAll / totalSheetArea) * 100 : 0;
 
-    bestResult = {
-      plate1: plate1Res, plate2: plate2Res,
-      totalSheets, totalProduced: combinedProduced,
-      totalOverage: combinedProduced - totalOrderQty,
-      materialYield, sheetsSaved: 0,
-      plate1ProjectIndices: plate1Indices,
-      plate2ProjectIndices: plate2Indices,
-    };
+    // Accept if fewer sheets, or same sheets with better yield
+    if (totalSheets < bestTotal || (totalSheets === bestTotal && materialYield > bestYield)) {
+      bestTotal = totalSheets;
+      bestYield = materialYield;
+
+      const plate1Res = buildPlateResult(projects, plate1Indices, p1Result.allocation, p1Result.shapes, p1Result.runLength, sheetW, sheetH, bleedIn, p1Result.placedGroups);
+      const plate2Res = buildPlateResult(projects, plate2Indices, p2Result.allocation, p2Result.shapes, p2Result.runLength, sheetW, sheetH, bleedIn, p2Result.placedGroups);
+
+      const combinedProduced = plate1Res.totalProduced + plate2Res.totalProduced;
+      const totalOrderQty = demands.reduce((s, q) => s + q, 0);
+
+      // Compute combined yield from the actual built plate results
+      const combinedStickerArea = plate1Res.allocation.reduce((s, a) => s + a.produced * a.stickerWidth * a.stickerHeight, 0)
+        + plate2Res.allocation.reduce((s, a) => s + a.produced * a.stickerWidth * a.stickerHeight, 0);
+      const combinedSheetArea = (plate1Res.runLength + plate2Res.runLength) * sheetW * sheetH;
+      const combinedYield = combinedSheetArea > 0 ? (combinedStickerArea / combinedSheetArea) * 100 : 0;
+
+      bestResult = {
+        plate1: plate1Res, plate2: plate2Res,
+        totalSheets, totalProduced: combinedProduced,
+        totalOverage: combinedProduced - totalOrderQty,
+        materialYield: combinedYield, sheetsSaved: 0,
+        plate1ProjectIndices: plate1Indices,
+        plate2ProjectIndices: plate2Indices,
+      };
+    }
+  }
+
+  // ── Priority splits for same-dimension projects ──────────────────────────
+  // When all projects have the same sticker dimensions, the most efficient
+  // split is to put the project with the HIGHEST quantity on its own plate.
+  // This gives the most flexibility in filling sheets.
+  // Try these priority splits even if they were already covered above,
+  // but with higher maxSlots for the single-project plate to maximize fill.
+
+  const allSameDim = stickerSizes.every((s, _, arr) =>
+    Math.abs(s.width - arr[0].width) < 0.001 && Math.abs(s.height - arr[0].height) < 0.001
+  );
+
+  if (allSameDim && n >= 2) {
+    // Sort projects by quantity descending
+    const sortedByQty = Array.from({ length: n }, (_, i) => i)
+      .sort((a, b) => demands[b] - demands[a]);
+
+    // Try splitting each project onto its own plate (highest quantity first)
+    for (const singleIdx of sortedByQty) {
+      if (Date.now() - startTime > MAX_TIME_MS) break;
+
+      const singlePlate = [singleIdx];
+      const multiPlate = Array.from({ length: n }, (_, i) => i).filter(i => i !== singleIdx);
+
+      // Compute a larger maxSlots for the single-project plate to maximize fill
+      const singleStickerSize = stickerSizes[singleIdx];
+      const bleedMm = bleedIn * 25.4;
+      const singleMaxSlots = estimateMaxSlots(sheetW, sheetH, [singleStickerSize], bleedMm);
+
+      const p1Demands = multiPlate.map((i) => demands[i]);
+      const p1StickerSizes = multiPlate.map((i) => stickerSizes[i]);
+      const p1Result = findBestAllocationWithPacking(p1Demands, p1StickerSizes, sheetW, sheetH, bleedIn, maxSlots);
+      if (!p1Result) continue;
+
+      const p2Demands = singlePlate.map((i) => demands[i]);
+      const p2StickerSizes = singlePlate.map((i) => stickerSizes[i]);
+      // Use the larger maxSlots for the single-project plate to maximize space fill
+      const p2Result = findBestAllocationWithPacking(p2Demands, p2StickerSizes, sheetW, sheetH, bleedIn, Math.max(maxSlots, singleMaxSlots));
+      if (!p2Result) continue;
+
+      const totalSheets = p1Result.runLength + p2Result.runLength;
+
+      // Compute material yield (total sticker area across all runs / total sheet area)
+      const sheetArea = sheetW * sheetH;
+      let p1StickerArea = 0;
+      for (let i = 0; i < p1Result.allocation.length; i++) {
+        p1StickerArea += p1Result.allocation[i] * p1StickerSizes[i].width * p1StickerSizes[i].height;
+      }
+      let p2StickerArea = 0;
+      for (let i = 0; i < p2Result.allocation.length; i++) {
+        p2StickerArea += p2Result.allocation[i] * p2StickerSizes[i].width * p2StickerSizes[i].height;
+      }
+      const totalStickerAreaAll = p1StickerArea * p1Result.runLength + p2StickerArea * p2Result.runLength;
+      const totalSheetArea = sheetArea * totalSheets;
+      const materialYield = totalSheetArea > 0 ? (totalStickerAreaAll / totalSheetArea) * 100 : 0;
+
+      if (totalSheets < bestTotal || (totalSheets === bestTotal && materialYield > bestYield)) {
+        bestTotal = totalSheets;
+        bestYield = materialYield;
+
+        const plate1Res = buildPlateResult(projects, multiPlate, p1Result.allocation, p1Result.shapes, p1Result.runLength, sheetW, sheetH, bleedIn, p1Result.placedGroups);
+        const plate2Res = buildPlateResult(projects, singlePlate, p2Result.allocation, p2Result.shapes, p2Result.runLength, sheetW, sheetH, bleedIn, p2Result.placedGroups);
+
+        const combinedProduced = plate1Res.totalProduced + plate2Res.totalProduced;
+        const totalOrderQty = demands.reduce((s, q) => s + q, 0);
+
+        // Compute combined yield from the actual built plate results
+        const combinedStickerArea = plate1Res.allocation.reduce((s, a) => s + a.produced * a.stickerWidth * a.stickerHeight, 0)
+          + plate2Res.allocation.reduce((s, a) => s + a.produced * a.stickerWidth * a.stickerHeight, 0);
+        const combinedSheetArea = (plate1Res.runLength + plate2Res.runLength) * sheetW * sheetH;
+        const combinedYield = combinedSheetArea > 0 ? (combinedStickerArea / combinedSheetArea) * 100 : 0;
+
+        bestResult = {
+          plate1: plate1Res, plate2: plate2Res,
+          totalSheets, totalProduced: combinedProduced,
+          totalOverage: combinedProduced - totalOrderQty,
+          materialYield: combinedYield, sheetsSaved: 0,
+          plate1ProjectIndices: multiPlate,
+          plate2ProjectIndices: singlePlate,
+        };
+      }
+    }
   }
 
   return bestResult;
