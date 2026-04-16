@@ -5,15 +5,15 @@
 // KEY ALGORITHM:
 // 1. Direct L-search to find minimum run length
 // 2. Rotation support: stickers can be rotated (24x16.5 = 16.5x24)
-// 3. Pack-and-fill: after initial packing, fill remaining space with bonus groups
-// 4. This maximizes space utilization (material yield) on every sheet
+// 3. Each project = ONE connected group on the sheet (no orphan stickers)
+// 4. Search larger outs to fill the sheet better (maximize yield)
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface ProjectInput {
   name: string;
   quantity: number;
-  stickerWidth: number;  // inches — each project can have its own size
+  stickerWidth: number;  // inches
   stickerHeight: number; // inches
 }
 
@@ -207,6 +207,7 @@ function maxRectPackOneOrder(
       placedStickerH = group.stickerHeight;
     }
 
+    // Strict boundary check — must fit within sheet
     if (result.x + placedW > sheetW + 0.001 || result.y + placedH > sheetH + 0.001) return null;
 
     placed.push({
@@ -411,119 +412,8 @@ function tryPackGroups(
   return null;
 }
 
-// ── Pack-and-Fill: fill remaining space with bonus sticker groups ──────
-// After initial packing, this finds free space on the sheet and tries to
-// add additional sticker groups to maximize space utilization.
-
-function fillRemainingSpace(
-  placedGroups: PlacedGroup[],
-  allocOuts: number[], // current outs per project
-  stickerSizes: { width: number; height: number }[],
-  sheetW: number,
-  sheetH: number,
-  bleedIn: number
-): { placedGroups: PlacedGroup[]; updatedOuts: number[] } {
-  // Reconstruct free rectangles from the placed groups
-  let freeRects: MaxRect[] = [{ x: 0, y: 0, width: sheetW, height: sheetH }];
-  for (const pg of placedGroups) {
-    freeRects = splitFreeRects(freeRects, pg.x, pg.y, pg.width, pg.height);
-    freeRects = pruneFreeRects(freeRects);
-  }
-
-  const updatedPlaced = [...placedGroups];
-  const updatedOuts = [...allocOuts];
-
-  // Iteratively add the largest possible bonus group
-  let added = true;
-  while (added) {
-    added = false;
-
-    // Find the best bonus group to add (max sticker area that fits)
-    let bestBonus: {
-      projIdx: number;
-      cols: number;
-      rows: number;
-      sw: number;
-      sh: number;
-      fr: MaxRect;
-      rotated: boolean;
-      stickerArea: number;
-    } | null = null;
-
-    for (let projIdx = 0; projIdx < stickerSizes.length; projIdx++) {
-      const sw = stickerSizes[projIdx].width;
-      const sh = stickerSizes[projIdx].height;
-
-      const orientations = Math.abs(sw - sh) > 0.001
-        ? [{ sw, sh }, { sw: sh, sh: sw }]
-        : [{ sw, sh }];
-
-      for (const orient of orientations) {
-        for (const fr of freeRects) {
-          // Compute max cols/rows that fit in this free rect
-          const maxColsOrig = Math.floor((fr.width - 2 * bleedIn) / orient.sw);
-          const maxRowsOrig = Math.floor((fr.height - 2 * bleedIn) / orient.sh);
-          const maxColsRot = Math.floor((fr.width - 2 * bleedIn) / orient.sh);
-          const maxRowsRot = Math.floor((fr.height - 2 * bleedIn) / orient.sw);
-
-          // Original orientation
-          if (maxColsOrig >= 1 && maxRowsOrig >= 1) {
-            const cols = maxColsOrig;
-            const rows = maxRowsOrig;
-            const stickerArea = cols * rows * orient.sw * orient.sh;
-            if (!bestBonus || stickerArea > bestBonus.stickerArea) {
-              bestBonus = { projIdx, cols, rows, sw: orient.sw, sh: orient.sh, fr, rotated: false, stickerArea };
-            }
-          }
-
-          // Rotated orientation (swap groupW/groupH)
-          if (maxColsRot >= 1 && maxRowsRot >= 1) {
-            const cols = maxColsRot;
-            const rows = maxRowsRot;
-            const stickerArea = cols * rows * orient.sw * orient.sh;
-            if (!bestBonus || stickerArea > bestBonus.stickerArea) {
-              bestBonus = { projIdx, cols, rows, sw: orient.sw, sh: orient.sh, fr, rotated: true, stickerArea };
-            }
-          }
-        }
-      }
-    }
-
-    if (bestBonus) {
-      const groupW = bestBonus.cols * bestBonus.sw + 2 * bleedIn;
-      const groupH = bestBonus.rows * bestBonus.sh + 2 * bleedIn;
-      const placedW = bestBonus.rotated ? groupH : groupW;
-      const placedH = bestBonus.rotated ? groupW : groupH;
-
-      updatedPlaced.push({
-        name: `p${bestBonus.projIdx}`,
-        projectIdx: bestBonus.projIdx,
-        shape: bestBonus.rotated
-          ? { w: bestBonus.rows, h: bestBonus.cols }
-          : { w: bestBonus.cols, h: bestBonus.rows },
-        outs: bestBonus.cols * bestBonus.rows,
-        x: bestBonus.fr.x,
-        y: bestBonus.fr.y,
-        width: placedW,
-        height: placedH,
-        stickerWidth: bestBonus.rotated ? bestBonus.sh : bestBonus.sw,
-        stickerHeight: bestBonus.rotated ? bestBonus.sw : bestBonus.sh,
-      });
-
-      updatedOuts[bestBonus.projIdx] += bestBonus.cols * bestBonus.rows;
-
-      // Update free rectangles
-      freeRects = splitFreeRects(freeRects, bestBonus.fr.x, bestBonus.fr.y, placedW, placedH);
-      freeRects = pruneFreeRects(freeRects);
-
-      added = true;
-    }
-  }
-
-  return { placedGroups: updatedPlaced, updatedOuts };
-}
-
 // ── Shape Combination Packing (with both sticker orientations) ────────────
+// Each project = ONE group. No orphan stickers.
 
 function findValidPacking(
   allocation: { name: string; projectIdx: number; outs: number; stickerWidth: number; stickerHeight: number }[],
@@ -607,7 +497,8 @@ function findValidPacking(
   return bestPacking ? { shapes: bestPacking.shapes, placedGroups: bestPacking.placedGroups } : null;
 }
 
-// ── Direct L-Search Allocation (with pack-and-fill) ──────────────────────
+// ── Direct L-Search Allocation ────────────────────────────────────────────
+// Each project = ONE group. Search larger outs to maximize sheet fill.
 
 interface AllocationWithPacking {
   allocation: number[];
@@ -658,15 +549,17 @@ export function findBestAllocationWithPacking(
 
   const sortedLs = [...criticalLs].sort((a, b) => a - b);
 
-  // ── STEP 2: For each L, find best packing and fill remaining space ────
+  // ── STEP 2: For each L, search for the allocation that MAXIMIZES yield ─
+  // Not just minimum outs — try larger outs to fill the sheet better.
+  // Each project stays as ONE connected group.
 
   const triedAllocations = new Set<string>();
-  let globalBest: AllocationWithPacking | null = null;
+  let globalBestL = Infinity;
+  let globalBestResult: AllocationWithPacking | null = null;
   let globalBestYield = 0;
 
   for (const L of sortedLs) {
-    // If we already found a result at a lower L, stop (lower L = fewer sheets = cheaper)
-    if (globalBest && L >= globalBest.runLength) break;
+    if (L >= globalBestL) break;
 
     const minAllocation = demands.map((d) => Math.max(minOuts, Math.ceil(d / L)));
     const minTotalOuts = minAllocation.reduce((s, o) => s + o, 0);
@@ -675,10 +568,11 @@ export function findBestAllocationWithPacking(
 
     const extraSlots = maxSlots - minTotalOuts;
 
+    // Generate allocation variants: minimum + ways to increase outs
     const allocationsToTry: number[][] = [[...minAllocation]];
 
     if (extraSlots > 0) {
-      generateExtraSlotDistributions(minAllocation, extraSlots, perProjectMax, allocationsToTry, 200);
+      generateExtraSlotDistributions(minAllocation, extraSlots, perProjectMax, allocationsToTry, 300);
     }
 
     let bestPackingForL: AllocationWithPacking | null = null;
@@ -694,8 +588,7 @@ export function findBestAllocationWithPacking(
         actualL = Math.max(actualL, Math.ceil(demands[i] / alloc[i]));
       }
 
-      // Skip if this allocation gives a worse L than we already found
-      if (globalBest && actualL >= globalBest.runLength) continue;
+      if (actualL >= globalBestL) continue;
 
       const allocInfo = alloc.map((outs, i) => ({
         name: `p${i}`,
@@ -708,109 +601,96 @@ export function findBestAllocationWithPacking(
       const packing = findValidPacking(allocInfo, sheetW, sheetH, bleedIn);
 
       if (packing) {
-        // ── PACK-AND-FILL: fill remaining space with bonus groups ──
-        const fillResult = fillRemainingSpace(
-          packing.placedGroups,
-          [...alloc],
-          stickerSizes,
-          sheetW, sheetH, bleedIn
-        );
-
-        // Compute yield after filling
+        // Compute material yield for this packing
         const sheetArea = sheetW * sheetH;
         let usedStickerArea = 0;
-        for (const pg of fillResult.placedGroups) {
-          usedStickerArea += pg.outs * pg.stickerWidth * pg.stickerHeight;
+        for (let i = 0; i < n; i++) {
+          usedStickerArea += alloc[i] * stickerSizes[i].width * stickerSizes[i].height;
         }
         const yieldPct = (usedStickerArea / (sheetArea * actualL)) * 100;
 
-        if (yieldPct > bestYieldForL) {
+        if (yieldPct > bestYieldForL || !bestPackingForL) {
           bestYieldForL = yieldPct;
           bestPackingForL = {
-            allocation: fillResult.updatedOuts,
+            allocation: [...alloc],
             runLength: actualL,
             shapes: packing.shapes,
-            placedGroups: fillResult.placedGroups,
+            placedGroups: packing.placedGroups,
           };
         }
       }
     }
 
-    // If we found a valid packing at this L, it's the minimum possible L
     if (bestPackingForL) {
-      return bestPackingForL;
+      globalBestL = bestPackingForL.runLength;
+      globalBestYield = bestYieldForL;
+      globalBestResult = bestPackingForL;
     }
   }
 
   // ── STEP 3: Fallback — brute force search ──────────────────────────────
 
-  let bestL = Infinity;
-  let bestResult: AllocationWithPacking | null = null;
-  let totalSearchIterations = 0;
-  const MAX_SEARCH_ITERATIONS = 500000;
+  if (!globalBestResult) {
+    let bestL = Infinity;
+    let bestResult: AllocationWithPacking | null = null;
+    let totalSearchIterations = 0;
+    const MAX_SEARCH_ITERATIONS = 500000;
 
-  for (let totalOuts = maxSlots; totalOuts >= minTotal; totalOuts--) {
-    if (totalSearchIterations >= MAX_SEARCH_ITERATIONS) break;
+    for (let totalOuts = maxSlots; totalOuts >= minTotal; totalOuts--) {
+      if (totalSearchIterations >= MAX_SEARCH_ITERATIONS) break;
 
-    const current = new Array(n).fill(0);
+      const current = new Array(n).fill(0);
 
-    function search(idx: number, remaining: number): void {
-      if (totalSearchIterations >= MAX_SEARCH_ITERATIONS) return;
-      if (idx === n - 1) {
-        totalSearchIterations++;
-        current[idx] = remaining;
-        if (remaining < minOuts || remaining > perProjectMax[idx]) return;
-
-        let L = 0;
-        for (let i = 0; i < n; i++) L = Math.max(L, Math.ceil(demands[i] / current[i]));
-        if (L >= bestL) return;
-
-        const key = current.join(",");
-        if (triedAllocations.has(key)) return;
-        triedAllocations.add(key);
-
-        const allocInfo = current.map((outs, i) => ({
-          name: `p${i}`, projectIdx: i, outs,
-          stickerWidth: stickerSizes[i].width, stickerHeight: stickerSizes[i].height,
-        }));
-
-        const packing = findValidPacking(allocInfo, sheetW, sheetH, bleedIn);
-        if (packing) {
-          // Apply pack-and-fill here too
-          const fillResult = fillRemainingSpace(
-            packing.placedGroups,
-            [...current],
-            stickerSizes,
-            sheetW, sheetH, bleedIn
-          );
-
-          bestL = L;
-          bestResult = {
-            allocation: fillResult.updatedOuts,
-            runLength: L,
-            shapes: packing.shapes,
-            placedGroups: fillResult.placedGroups,
-          };
-        }
-        return;
-      }
-
-      const minRemaining = (n - idx - 1) * minOuts;
-      const maxVal = Math.min(remaining - minRemaining, perProjectMax[idx]);
-      for (let val = minOuts; val <= maxVal; val++) {
+      function search(idx: number, remaining: number): void {
         if (totalSearchIterations >= MAX_SEARCH_ITERATIONS) return;
-        current[idx] = val;
-        let partialL = 0;
-        for (let i = 0; i <= idx; i++) partialL = Math.max(partialL, Math.ceil(demands[i] / current[i]));
-        if (partialL >= bestL) continue;
-        search(idx + 1, remaining - val);
+        if (idx === n - 1) {
+          totalSearchIterations++;
+          current[idx] = remaining;
+          if (remaining < minOuts || remaining > perProjectMax[idx]) return;
+
+          let L = 0;
+          for (let i = 0; i < n; i++) L = Math.max(L, Math.ceil(demands[i] / current[i]));
+          if (L >= bestL) return;
+
+          const key = current.join(",");
+          if (triedAllocations.has(key)) return;
+          triedAllocations.add(key);
+
+          const allocInfo = current.map((outs, i) => ({
+            name: `p${i}`, projectIdx: i, outs,
+            stickerWidth: stickerSizes[i].width, stickerHeight: stickerSizes[i].height,
+          }));
+
+          const packing = findValidPacking(allocInfo, sheetW, sheetH, bleedIn);
+          if (packing) {
+            bestL = L;
+            bestResult = {
+              allocation: [...current], runLength: L,
+              shapes: packing.shapes, placedGroups: packing.placedGroups,
+            };
+          }
+          return;
+        }
+
+        const minRemaining = (n - idx - 1) * minOuts;
+        const maxVal = Math.min(remaining - minRemaining, perProjectMax[idx]);
+        for (let val = minOuts; val <= maxVal; val++) {
+          if (totalSearchIterations >= MAX_SEARCH_ITERATIONS) return;
+          current[idx] = val;
+          let partialL = 0;
+          for (let i = 0; i <= idx; i++) partialL = Math.max(partialL, Math.ceil(demands[i] / current[i]));
+          if (partialL >= bestL) continue;
+          search(idx + 1, remaining - val);
+        }
       }
+
+      search(0, totalOuts);
     }
 
-    search(0, totalOuts);
+    return bestResult;
   }
 
-  return bestResult;
+  return globalBestResult;
 }
 
 // ── Extra Slot Distribution ──────────────────────────────────────────────
@@ -824,6 +704,7 @@ function generateExtraSlotDistributions(
 ): void {
   const n = baseAllocation.length;
 
+  // Strategy 1: Give all extra to each project (maximizes that project's group)
   for (let i = 0; i < n; i++) {
     if (results.length >= maxResults) return;
     const alloc = [...baseAllocation];
@@ -834,6 +715,7 @@ function generateExtraSlotDistributions(
     }
   }
 
+  // Strategy 2: Round-robin distribution
   {
     const alloc = [...baseAllocation];
     let remaining = extraSlots;
@@ -850,6 +732,7 @@ function generateExtraSlotDistributions(
     if (remaining === 0 && results.length < maxResults) results.push(alloc);
   }
 
+  // Strategy 3: Give to smallest outs first (they benefit most from more stickers)
   {
     const alloc = [...baseAllocation];
     const indices = Array.from({ length: n }, (_, i) => i);
@@ -866,12 +749,25 @@ function generateExtraSlotDistributions(
     if (remaining === 0 && results.length < maxResults) results.push(alloc);
   }
 
+  // Strategy 4: Give 1 extra to each project individually
   if (extraSlots >= 1 && results.length < maxResults) {
     for (let i = 0; i < n; i++) {
       if (results.length >= maxResults) return;
       if (baseAllocation[i] < perProjectMax[i]) {
         const alloc = [...baseAllocation];
         alloc[i]++;
+        results.push(alloc);
+      }
+    }
+  }
+
+  // Strategy 5: Try giving 2 extra to each project
+  if (extraSlots >= 2 && results.length < maxResults) {
+    for (let i = 0; i < n; i++) {
+      if (results.length >= maxResults) return;
+      if (baseAllocation[i] + 2 <= perProjectMax[i]) {
+        const alloc = [...baseAllocation];
+        alloc[i] += 2;
         results.push(alloc);
       }
     }
@@ -891,11 +787,6 @@ export function buildPlateResult(
   bleedIn: number,
   placedGroups: PlacedGroup[]
 ): PlateResult {
-  // When there are multiple groups per project (from pack-and-fill),
-  // the allocation already has the correct total outs per project.
-  // The shapes array has the main group shape for each project.
-  // Bonus groups are in placedGroups but not in shapes.
-
   const totalProduced = allocation.reduce((sum, outs) => sum + outs * runLength, 0);
 
   let totalOrderQty = 0;
