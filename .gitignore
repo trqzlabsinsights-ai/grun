@@ -58,3 +58,4 @@ server.log
 
 # Generated files
 generate_v2*.py
+bun.lock
