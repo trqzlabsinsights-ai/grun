@@ -714,12 +714,14 @@ export function findBestAllocationWithPacking(
   let globalBestL = Infinity;
   let globalBestResult: AllocationWithPacking | null = null;
   let globalBestYield = 0;
-  const searchStartTime = Date.now();
-  const MAX_SEARCH_TIME_MS = 5000; // 5 second timeout — was 8s, reduced for Render free tier
+  // Iteration-based limit (not time-based) ensures identical results
+  // across different CPU speeds and Node.js versions (v20 vs v25+)
+  let totalPackingAttempts = 0;
+  const MAX_PACKING_ATTEMPTS = 150; // ~4-5s on Render free tier, deterministic across engines
 
   for (const L of sortedLs) {
     if (L >= globalBestL) break;
-    if (Date.now() - searchStartTime > MAX_SEARCH_TIME_MS) break;
+    if (totalPackingAttempts >= MAX_PACKING_ATTEMPTS) break;
 
     const minAllocation = demands.map((d) => Math.max(minOuts, Math.ceil(d / L)));
     const minTotalOuts = minAllocation.reduce((s, o) => s + o, 0);
@@ -739,6 +741,7 @@ export function findBestAllocationWithPacking(
     let bestYieldForL = 0;
 
     for (const alloc of allocationsToTry) {
+      if (totalPackingAttempts >= MAX_PACKING_ATTEMPTS) break;
       const key = alloc.join(",");
       if (triedAllocations.has(key)) continue;
       triedAllocations.add(key);
@@ -749,6 +752,8 @@ export function findBestAllocationWithPacking(
       }
 
       if (actualL >= globalBestL) continue;
+
+      totalPackingAttempts++; // Count each packing attempt for deterministic limits
 
       const allocInfo = alloc.map((outs, i) => ({
         name: `p${i}`,
@@ -1235,8 +1240,10 @@ export function findBestTwoPlate(
   let bestYield = 0; // Track yield for tiebreaking
   let bestResult: TwoPlateResult | null = null;
 
-  const startTime = Date.now();
-  const MAX_TIME_MS = 15000; // 15 second timeout for two-plate search (was 30s, reduced for Render free tier)
+  // Iteration-based limit (not time-based) ensures deterministic results
+  // across different CPU speeds and Node.js versions
+  let splitAttempts = 0;
+  const MAX_SPLIT_ATTEMPTS = 50; // Deterministic: enough for 7-project 2^n splits
 
   // ── Generate all valid plate splits ──────────────────────────────────────
   // Key fix: try ALL 2^n - 2 splits (not just ones where project 0 is on plate 1)
@@ -1252,7 +1259,7 @@ export function findBestTwoPlate(
   const triedSplits = new Set<string>();
 
   for (let mask = 1; mask < totalMasks - 1; mask++) {
-    if (Date.now() - startTime > MAX_TIME_MS) break;
+    if (splitAttempts >= MAX_SPLIT_ATTEMPTS) break;
 
     const plate1Indices: number[] = [];
     const plate2Indices: number[] = [];
@@ -1270,6 +1277,7 @@ export function findBestTwoPlate(
     const mirrorKey = plate2Indices.join(",") + "|" + plate1Indices.join(",");
     if (triedSplits.has(splitKey) || triedSplits.has(mirrorKey)) continue;
     triedSplits.add(splitKey);
+    splitAttempts++; // Count for deterministic limit
 
     const p1Demands = plate1Indices.map((i) => demands[i]);
     const p1StickerSizes = plate1Indices.map((i) => stickerSizes[i]);
@@ -1346,10 +1354,11 @@ export function findBestTwoPlate(
 
     // Try splitting each project onto its own plate (highest quantity first)
     for (const singleIdx of sortedByQty) {
-      if (Date.now() - startTime > MAX_TIME_MS) break;
+      if (splitAttempts >= MAX_SPLIT_ATTEMPTS) break;
 
       const singlePlate = [singleIdx];
       const multiPlate = Array.from({ length: n }, (_, i) => i).filter(i => i !== singleIdx);
+      splitAttempts++; // Count for deterministic limit
 
       // Compute a larger maxSlots for the single-project plate to maximize fill
       const singleStickerSize = stickerSizes[singleIdx];
@@ -1470,22 +1479,24 @@ function tryMultiPlateOrdering(
   // or create a new plate if none can.
   // Then optimize each plate independently.
 
-  const startTime = Date.now();
-  const MAX_TIME_MS = 15000; // 15 second timeout
+  // Iteration-based limit (not time-based) for deterministic results across engines
+  let multiPlateAttempts = 0;
+  const MAX_MULTI_PLATE_ATTEMPTS = 50;
 
   // Start by trying to pack all projects into as few plates as possible
   // Each plate is a list of project indices
   const plates: number[][] = [];
 
   for (const projIdx of ordering) {
-    // Timeout check
-    if (Date.now() - startTime > MAX_TIME_MS) return null;
+    // Iteration limit check (deterministic)
+    if (multiPlateAttempts >= MAX_MULTI_PLATE_ATTEMPTS) return null;
 
     let placed = false;
 
     // Try to add this project to an existing plate
     for (let p = 0; p < plates.length; p++) {
-      if (Date.now() - startTime > MAX_TIME_MS) return null;
+      if (multiPlateAttempts >= MAX_MULTI_PLATE_ATTEMPTS) return null;
+      multiPlateAttempts++;
       const testPlate = [...plates[p], projIdx];
       // Quick pre-check: can these projects even fit by area?
       const totalMinOuts = testPlate.length * 2;
