@@ -113,11 +113,13 @@ export function getGroupShapes(outs: number): GroupShape[] {
     }
   }
   // Sort: most square first, then wider shapes (better for packing)
+  // Deterministic: use a.w as final tiebreaker to ensure consistent order
   shapes.sort((a, b) => {
     const ratioA = Math.max(a.w, a.h) / Math.min(a.w, a.h);
     const ratioB = Math.max(b.w, b.h) / Math.min(b.w, b.h);
-    if (ratioA !== ratioB) return ratioA - ratioB;
-    return b.w - a.w;
+    if (Math.abs(ratioA - ratioB) > 0.000001) return ratioA - ratioB;
+    if (b.w !== a.w) return b.w - a.w;
+    return a.h - b.h; // Final tiebreaker for determinism
   });
   return shapes;
 }
@@ -154,21 +156,25 @@ export function maxRectPack(
   sheetW: number,
   sheetH: number
 ): PlacedGroup[] | null {
+  // Deterministic tiebreaker: always use projectIdx as secondary sort key
+  // to ensure identical results across all JS engines (Bun, Node, V8, SpiderMonkey)
   const orderings: GroupWithDims[][] = [
-    [...groups].sort((a, b) => b.height - a.height),
-    [...groups].sort((a, b) => b.width - a.width),
-    [...groups].sort((a, b) => (b.width * b.height) - (a.width * a.height)),
-    [...groups].sort((a, b) => a.height - b.height),
-    [...groups].sort((a, b) => a.width - b.width),
+    // Primary: tallest first — deterministic tiebreak by projectIdx
     [...groups].sort((a, b) => {
-      if (b.height !== a.height) return b.height - a.height;
-      return b.width - a.width;
+      const dh = b.height - a.height;
+      if (Math.abs(dh) > 0.000001) return dh;
+      const dw = b.width - a.width;
+      if (Math.abs(dw) > 0.000001) return dw;
+      return a.projectIdx - b.projectIdx;
     }),
+    // Primary: widest first — deterministic tiebreak by projectIdx
     [...groups].sort((a, b) => {
-      if (b.width !== a.width) return b.width - a.width;
-      return b.height - a.height;
+      const dw = b.width - a.width;
+      if (Math.abs(dw) > 0.000001) return dw;
+      const dh = b.height - a.height;
+      if (Math.abs(dh) > 0.000001) return dh;
+      return a.projectIdx - b.projectIdx;
     }),
-    [...groups].sort((a, b) => a.width * a.height - b.width * b.height),
   ];
 
   let bestResult: PlacedGroup[] | null = null;
@@ -249,14 +255,28 @@ function findBestFreeRect(
 ): PlacementResult | null {
   let bestScore = Infinity;
   let bestResult: PlacementResult | null = null;
+  // Deterministic tiebreaker values: prefer lower x, then lower y, then non-rotated
+  // This ensures identical results across all JS engines regardless of
+  // iteration order differences (Bun vs Node)
+  let bestTieX = Infinity;
+  let bestTieY = Infinity;
+  let bestTieRotated = 1; // 0 = not rotated (preferred), 1 = rotated
 
   // Original orientation
   for (const fr of freeRects) {
     if (rectW <= fr.width + 0.001 && rectH <= fr.height + 0.001) {
       if (fr.x + rectW <= sheetW + 0.001 && fr.y + rectH <= sheetH + 0.001) {
-        const shortSideFit = Math.min(fr.width - rectW, fr.height - rectH);
-        if (shortSideFit < bestScore) {
+        const shortSideFit = Math.round(Math.min(fr.width - rectW, fr.height - rectH) * 1e6) / 1e6;
+        const tX = Math.round(fr.x * 1e6) / 1e6;
+        const tY = Math.round(fr.y * 1e6) / 1e6;
+        if (shortSideFit < bestScore ||
+            (shortSideFit === bestScore && (tX < bestTieX ||
+            (tX === bestTieX && tY < bestTieY) ||
+            (tX === bestTieX && tY === bestTieY && bestTieRotated === 1)))) {
           bestScore = shortSideFit;
+          bestTieX = tX;
+          bestTieY = tY;
+          bestTieRotated = 0;
           bestResult = { x: fr.x, y: fr.y, rotated: false };
         }
       }
@@ -268,9 +288,16 @@ function findBestFreeRect(
     for (const fr of freeRects) {
       if (rectH <= fr.width + 0.001 && rectW <= fr.height + 0.001) {
         if (fr.x + rectH <= sheetW + 0.001 && fr.y + rectW <= sheetH + 0.001) {
-          const shortSideFit = Math.min(fr.width - rectH, fr.height - rectW);
-          if (shortSideFit < bestScore) {
+          const shortSideFit = Math.round(Math.min(fr.width - rectH, fr.height - rectW) * 1e6) / 1e6;
+          const tX = Math.round(fr.x * 1e6) / 1e6;
+          const tY = Math.round(fr.y * 1e6) / 1e6;
+          if (shortSideFit < bestScore ||
+              (shortSideFit === bestScore && tX < bestTieX) ||
+              (shortSideFit === bestScore && tX === bestTieX && tY < bestTieY)) {
             bestScore = shortSideFit;
+            bestTieX = tX;
+            bestTieY = tY;
+            bestTieRotated = 1;
             bestResult = { x: fr.x, y: fr.y, rotated: true };
           }
         }
@@ -407,12 +434,18 @@ function tryPackGroups(
   const maxRectResult = maxRectPack(groups, sheetW, sheetH);
   if (maxRectResult) return maxRectResult;
 
+  // Deterministic shelf fallback: tallest-first with projectIdx tiebreaker
   const orderings: GroupWithDims[][] = [
-    [...groups].sort((a, b) => b.height - a.height),
-    [...groups].sort((a, b) => b.width - a.width),
-    [...groups].sort((a, b) => (b.width * b.height) - (a.width * a.height)),
-    [...groups].sort((a, b) => a.height - b.height),
-    [...groups].sort((a, b) => a.width - b.width),
+    [...groups].sort((a, b) => {
+      const dh = b.height - a.height;
+      if (Math.abs(dh) > 0.000001) return dh;
+      return a.projectIdx - b.projectIdx;
+    }),
+    [...groups].sort((a, b) => {
+      const dw = b.width - a.width;
+      if (Math.abs(dw) > 0.000001) return dw;
+      return a.projectIdx - b.projectIdx;
+    }),
   ];
 
   for (const ordered of orderings) {
@@ -582,7 +615,7 @@ function findValidPacking(
 
   let bestPacking: { shapes: GroupShape[]; placedGroups: PlacedGroup[]; usedArea: number } | null = null;
   let attempts = 0;
-  const maxAttempts = 50000;
+  const maxAttempts = 2000; // Reduced from 50000 for performance — 7-project inputs must complete in <5s
 
   function tryCombo(idx: number, currentGroups: GroupWithDims[]): void {
     if (attempts >= maxAttempts) return;
@@ -682,7 +715,7 @@ export function findBestAllocationWithPacking(
   let globalBestResult: AllocationWithPacking | null = null;
   let globalBestYield = 0;
   const searchStartTime = Date.now();
-  const MAX_SEARCH_TIME_MS = 8000; // 8 second timeout for L-search
+  const MAX_SEARCH_TIME_MS = 5000; // 5 second timeout — was 8s, reduced for Render free tier
 
   for (const L of sortedLs) {
     if (L >= globalBestL) break;
@@ -699,7 +732,7 @@ export function findBestAllocationWithPacking(
     const allocationsToTry: number[][] = [[...minAllocation]];
 
     if (extraSlots > 0) {
-      generateExtraSlotDistributions(minAllocation, extraSlots, perProjectMax, allocationsToTry, 300);
+      generateExtraSlotDistributions(minAllocation, extraSlots, perProjectMax, allocationsToTry, 100); // Reduced from 300 for performance
     }
 
     let bestPackingForL: AllocationWithPacking | null = null;
@@ -761,7 +794,7 @@ export function findBestAllocationWithPacking(
     let bestL = Infinity;
     let bestResult: AllocationWithPacking | null = null;
     let totalSearchIterations = 0;
-    const MAX_SEARCH_ITERATIONS = 100000;
+    const MAX_SEARCH_ITERATIONS = 20000; // Reduced from 100000 — prevents timeout on 7-project inputs
 
     for (let totalOuts = maxSlots; totalOuts >= minTotal; totalOuts--) {
       if (totalSearchIterations >= MAX_SEARCH_ITERATIONS) break;
@@ -981,7 +1014,11 @@ function generateExtraSlotDistributions(
   {
     const alloc = [...baseAllocation];
     const indices = Array.from({ length: n }, (_, i) => i);
-    indices.sort((a, b) => baseAllocation[a] - baseAllocation[b]);
+    indices.sort((a, b) => {
+      const diff = baseAllocation[a] - baseAllocation[b];
+      if (diff !== 0) return diff;
+      return a - b; // Deterministic tiebreaker
+    });
     let remaining = extraSlots;
     for (const i of indices) {
       if (remaining <= 0) break;
@@ -1199,7 +1236,7 @@ export function findBestTwoPlate(
   let bestResult: TwoPlateResult | null = null;
 
   const startTime = Date.now();
-  const MAX_TIME_MS = 30000; // 30 second timeout for two-plate search
+  const MAX_TIME_MS = 15000; // 15 second timeout for two-plate search (was 30s, reduced for Render free tier)
 
   // ── Generate all valid plate splits ──────────────────────────────────────
   // Key fix: try ALL 2^n - 2 splits (not just ones where project 0 is on plate 1)
