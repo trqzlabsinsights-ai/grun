@@ -1,12 +1,11 @@
 services:
   - type: web
     name: grun
-    runtime: node
-    buildCommand: npm install && npm run build
-    startCommand: node .next/standalone/server.js
+    runtime: docker
+    # Docker-based deployment forces Node.js 20 via Dockerfile.
+    # This bypasses Render's default Bun runtime which caused
+    # Next.js 16 Turbopack build failures.
     envVars:
-      - key: HOSTNAME
-        value: 0.0.0.0
-      - key: NODE_VERSION
-        value: "20"
+      - key: PORT
+        value: "10000"
     plan: free

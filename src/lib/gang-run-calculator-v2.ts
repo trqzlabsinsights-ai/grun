@@ -1340,9 +1340,9 @@ export function findBestTwoPlate(
   );
 
   if (allSameDim && n >= 2) {
-    // Sort projects by quantity descending
+    // Sort projects by quantity descending — deterministic tiebreaker by index
     const sortedByQty = Array.from({ length: n }, (_, i) => i)
-      .sort((a, b) => demands[b] - demands[a]);
+      .sort((a, b) => demands[b] - demands[a] || a - b);
 
     // Try splitting each project onto its own plate (highest quantity first)
     for (const singleIdx of sortedByQty) {
@@ -1437,8 +1437,8 @@ export function findBestMultiPlate(
 
   // Try multiple orderings to find the best grouping
   const orderings: number[][] = [
-    [...indices].sort((a, b) => demands[b] - demands[a]),  // Largest quantity first
-    [...indices].sort((a, b) => demands[a] - demands[b]),  // Smallest quantity first
+    [...indices].sort((a, b) => demands[b] - demands[a] || a - b),  // Largest quantity first (deterministic)
+    [...indices].sort((a, b) => demands[a] - demands[b] || a - b),  // Smallest quantity first (deterministic)
     [...indices],                                            // Original order
   ];
 
