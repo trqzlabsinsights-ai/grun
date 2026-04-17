@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: grun
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: node .next/standalone/server.js
+    envVars:
+      - key: HOSTNAME
+        value: 0.0.0.0
+      - key: NODE_VERSION
+        value: "20"
+    plan: free
