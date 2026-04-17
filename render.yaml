@@ -2,17 +2,13 @@ services:
   - type: web
     name: grun
     runtime: node
-    # Optimized for Render free tier (512MB RAM):
-    # - npm ci is faster and uses less memory than npm install
-    # - --max-old-space-size=400 prevents OOM during Next.js build
-    # - prune removes devDependencies after build to reduce disk usage
-    buildCommand: npm ci && npm run build && npm prune --omit=dev
+    buildCommand: bash build.sh
     startCommand: node .next/standalone/server.js
     envVars:
       - key: HOSTNAME
         value: 0.0.0.0
       - key: NODE_VERSION
         value: "20"
-      - key: NODE_OPTIONS
-        value: "--max-old-space-size=400"
+      - key: DATABASE_URL
+        value: "file:/tmp/grun.db"
     plan: free
